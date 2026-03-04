@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="DoTogether.Domain/DoTogether.Domain.csproj" />
+    <Project Path="DoTogether.Application/DoTogether.Application.csproj" />
+    <Project Path="DoTogether.Infrastructure/DoTogether.Infrastructure.csproj" />
+    <Project Path="DoTogether/DoTogether.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="DoTogether.Tests/DoTogether.Tests.csproj" />
+  </Folder>
+</Solution>
