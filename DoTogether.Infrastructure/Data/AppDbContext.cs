@@ -13,6 +13,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChoreTemplate> ChoreTemplates => Set<ChoreTemplate>();
     public DbSet<ChoreOccurrence> ChoreOccurrences => Set<ChoreOccurrence>();
     public DbSet<ChoreEvent> ChoreEvents => Set<ChoreEvent>();
+    public DbSet<HouseholdRecipe> HouseholdRecipes => Set<HouseholdRecipe>();
+    public DbSet<RecipeIngredient> RecipeIngredients => Set<RecipeIngredient>();
+    public DbSet<RecipeInstructionStep> RecipeInstructionSteps => Set<RecipeInstructionStep>();
+    public DbSet<MealPlanEntry> MealPlanEntries => Set<MealPlanEntry>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<DevicePushToken> DevicePushTokens => Set<DevicePushToken>();
     public DbSet<IdempotentOperation> IdempotentOperations => Set<IdempotentOperation>();
@@ -25,8 +29,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<User>(e =>
         {
             e.HasKey(u => u.Id);
-            e.HasIndex(u => u.Email).IsUnique();
-            e.Property(u => u.Email).HasMaxLength(256);
+            e.HasIndex(u => u.Username).HasDatabaseName("IX_Users_Email").IsUnique();
+            e.Property(u => u.Username).HasColumnName("Email").HasMaxLength(256);
             e.Property(u => u.DisplayName).HasMaxLength(120);
             e.Property(u => u.PasswordHash).HasMaxLength(512);
             e.HasQueryFilter(u => !u.IsDeleted);
@@ -45,7 +49,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<HouseholdMember>(e =>
         {
             e.HasKey(m => m.Id);
-            e.HasIndex(m => new { m.HouseholdId, m.UserId }).IsUnique();
+            e.HasIndex(m => new { m.HouseholdId, m.UserId })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = FALSE");
             e.HasOne(m => m.Household).WithMany(h => h.Members).HasForeignKey(m => m.HouseholdId);
             e.HasOne(m => m.User).WithMany(u => u.Memberships).HasForeignKey(m => m.UserId);
             e.HasQueryFilter(m => !m.IsDeleted);
@@ -56,7 +62,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasKey(i => i.Id);
             e.HasIndex(i => i.Token).IsUnique();
-            e.Property(i => i.InviteeEmail).HasMaxLength(256);
             e.Property(i => i.Token).HasMaxLength(64);
             e.HasOne(i => i.Household).WithMany(h => h.Invites).HasForeignKey(i => i.HouseholdId);
             e.HasQueryFilter(i => !i.IsDeleted);
@@ -72,6 +77,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(t => t.Assignee).WithMany().HasForeignKey(t => t.AssigneeId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(t => t.CreatedByUser).WithMany().HasForeignKey(t => t.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(t => !t.IsDeleted);
+            ConfigureXminConcurrency(e);
 
             // RecurrenceRule as owned JSON column.
             e.OwnsOne(t => t.RecurrenceRule, r =>
@@ -108,6 +114,64 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasQueryFilter(ev => !ev.IsDeleted);
         });
 
+        // ── HouseholdRecipe ──
+        modelBuilder.Entity<HouseholdRecipe>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Name).HasMaxLength(200);
+            e.Property(r => r.SourceUrl).HasMaxLength(1000);
+            e.Property(r => r.SourceDomain).HasMaxLength(255);
+            e.Property(r => r.SourceAttribution).HasMaxLength(200);
+            e.Property(r => r.YieldText).HasMaxLength(200);
+            e.Property(r => r.ImageUrl).HasMaxLength(1000);
+            e.HasIndex(r => new { r.HouseholdId, r.IsArchived, r.Name });
+            e.HasOne(r => r.Household).WithMany(h => h.Recipes).HasForeignKey(r => r.HouseholdId);
+            e.HasOne(r => r.CreatedByUser).WithMany().HasForeignKey(r => r.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(r => r.UpdatedByUser).WithMany().HasForeignKey(r => r.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
+            e.HasQueryFilter(r => !r.IsDeleted);
+            // Optimistic concurrency via Postgres' system xmin column (no schema change required).
+            ConfigureXminConcurrency(e);
+        });
+
+        // ── RecipeIngredient ──
+        modelBuilder.Entity<RecipeIngredient>(e =>
+        {
+            e.HasKey(i => i.Id);
+            e.Property(i => i.RawText).HasMaxLength(400);
+            e.Property(i => i.Unit).HasMaxLength(60);
+            e.Property(i => i.Item).HasMaxLength(200);
+            e.Property(i => i.Note).HasMaxLength(200);
+            e.HasIndex(i => new { i.HouseholdRecipeId, i.SortOrder });
+            e.HasOne(i => i.HouseholdRecipe).WithMany(r => r.Ingredients).HasForeignKey(i => i.HouseholdRecipeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── RecipeInstructionStep ──
+        modelBuilder.Entity<RecipeInstructionStep>(e =>
+        {
+            e.HasKey(i => i.Id);
+            e.Property(i => i.Text).HasMaxLength(2000);
+            e.Property(i => i.Section).HasMaxLength(120);
+            e.HasIndex(i => new { i.HouseholdRecipeId, i.SortOrder });
+            e.HasOne(i => i.HouseholdRecipe).WithMany(r => r.Instructions).HasForeignKey(i => i.HouseholdRecipeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── MealPlanEntry ──
+        modelBuilder.Entity<MealPlanEntry>(e =>
+        {
+            e.HasKey(m => m.Id);
+            e.Property(m => m.Notes).HasMaxLength(500);
+            e.HasIndex(m => new { m.HouseholdId, m.Date, m.MealSlot })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = FALSE");
+            e.HasIndex(m => new { m.HouseholdId, m.RecipeId, m.Date });
+            e.HasOne(m => m.Household).WithMany(h => h.MealPlanEntries).HasForeignKey(m => m.HouseholdId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(m => m.Recipe).WithMany(r => r.MealPlanEntries).HasForeignKey(m => m.RecipeId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(m => m.CreatedByUser).WithMany().HasForeignKey(m => m.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(m => m.UpdatedByUser).WithMany().HasForeignKey(m => m.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
+            e.HasQueryFilter(m => !m.IsDeleted);
+            ConfigureXminConcurrency(e);
+        });
+
         // ── RefreshToken ──
         modelBuilder.Entity<RefreshToken>(e =>
         {
@@ -133,5 +197,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(o => o.HouseholdId);
             e.Property(o => o.OperationType).HasMaxLength(50);
         });
+    }
+
+    /// <summary>
+    /// Configures Postgres' system <c>xmin</c> column as a concurrency token.
+    /// Concurrent edits raise <see cref="DbUpdateConcurrencyException"/> which
+    /// the exception middleware translates to HTTP 409. No-op for non-Postgres
+    /// providers (e.g. SQLite used in tests).
+    /// </summary>
+    private void ConfigureXminConcurrency<T>(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<T> entity)
+        where T : class
+    {
+        if (!Database.IsNpgsql()) return;
+
+        entity.Property<uint>("xmin")
+            .HasColumnName("xmin")
+            .HasColumnType("xid")
+            .ValueGeneratedOnAddOrUpdate()
+            .IsConcurrencyToken();
     }
 }

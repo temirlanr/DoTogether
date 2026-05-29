@@ -45,3 +45,25 @@ public enum AchievementScope
     Partner = 1,
     Household = 2
 }
+
+public enum RecipeOriginType
+{
+    Custom = 0,
+    ImportedStructuredData = 1
+}
+
+public enum MealSlot
+{
+    Breakfast = 0,
+    Lunch = 1,
+    Dinner = 2,
+    Snack = 3,
+    Other = 4
+}
+
+public enum ImportConfidenceLevel
+{
+    Low = 0,
+    Medium = 1,
+    High = 2
+}

@@ -22,13 +22,7 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             HouseholdId = householdId,
             Title = dto.Title,
             Description = dto.Description,
-            RecurrenceRule = new RecurrenceRule
-            {
-                Type = dto.RecurrenceRule.Type,
-                Interval = dto.RecurrenceRule.Interval,
-                DaysOfWeek = dto.RecurrenceRule.DaysOfWeek ?? [],
-                DayOfMonth = dto.RecurrenceRule.DayOfMonth
-            },
+            RecurrenceRule = BuildRecurrenceRule(dto.RecurrenceRule),
             AssigneeId = dto.AssigneeId,
             CreatedByUserId = userId,
             StartDate = dto.StartDate,
@@ -49,21 +43,47 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             .Include(t => t.Assignee)
             .FirstAsync(t => t.Id == templateId && t.HouseholdId == householdId && !t.IsDeleted, ct);
 
+        var assigneeChanged = false;
+
         if (dto.Title is not null) template.Title = dto.Title;
-        if (dto.Description is not null) template.Description = dto.Description;
-        if (dto.AssigneeId.HasValue) template.AssigneeId = dto.AssigneeId;
-        if (dto.EndDate.HasValue) template.EndDate = dto.EndDate;
+        if (dto.DescriptionSpecified) template.Description = dto.Description;
+        if (dto.AssigneeIdSpecified && dto.AssigneeId != template.AssigneeId)
+        {
+            template.AssigneeId = dto.AssigneeId;
+            template.Assignee = dto.AssigneeId.HasValue
+                ? await db.Users.FirstAsync(u => u.Id == dto.AssigneeId.Value, ct)
+                : null;
+            assigneeChanged = true;
+        }
+        if (dto.EndDateSpecified) template.EndDate = dto.EndDate;
         if (dto.IsActive.HasValue) template.IsActive = dto.IsActive.Value;
 
         if (dto.RecurrenceRule is not null)
         {
-            template.RecurrenceRule = new RecurrenceRule
+            template.RecurrenceRule = BuildRecurrenceRule(dto.RecurrenceRule);
+        }
+
+        if (assigneeChanged)
+        {
+            var householdTimeZoneId = await db.Households
+                .Where(h => h.Id == householdId && !h.IsDeleted)
+                .Select(h => h.TimeZoneId)
+                .FirstAsync(ct);
+            var today = clock.TodayIn(householdTimeZoneId);
+
+            var pendingFutureOccurrences = await db.ChoreOccurrences
+                .Where(o => o.ChoreTemplateId == templateId
+                            && o.HouseholdId == householdId
+                            && o.Status == OccurrenceStatus.Pending
+                            && o.DueDate >= today
+                            && !o.IsDeleted)
+                .ToListAsync(ct);
+
+            foreach (var occurrence in pendingFutureOccurrences)
             {
-                Type = dto.RecurrenceRule.Type,
-                Interval = dto.RecurrenceRule.Interval,
-                DaysOfWeek = dto.RecurrenceRule.DaysOfWeek ?? [],
-                DayOfMonth = dto.RecurrenceRule.DayOfMonth
-            };
+                occurrence.AssigneeId = template.AssigneeId;
+                occurrence.Version++;
+            }
         }
 
         template.UpdatedAtUtc = clock.UtcNow;
@@ -75,6 +95,20 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
     {
         var template = await db.ChoreTemplates
             .FirstAsync(t => t.Id == templateId && t.HouseholdId == householdId && !t.IsDeleted, ct);
+
+        var occurrencesToDelete = await db.ChoreOccurrences
+            .Where(o => o.ChoreTemplateId == templateId
+                        && o.HouseholdId == householdId
+                        && o.Status != OccurrenceStatus.Completed
+                        && !o.IsDeleted)
+            .ToListAsync(ct);
+
+        foreach (var occurrence in occurrencesToDelete)
+        {
+            occurrence.IsDeleted = true;
+            occurrence.Version++;
+            occurrence.UpdatedAtUtc = clock.UtcNow;
+        }
 
         template.IsDeleted = true;
         template.IsActive = false;
@@ -121,10 +155,14 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             return JsonSerializer.Deserialize<ChoreOccurrenceDto>(existing.ResponseJson)!;
 
         var occurrence = await db.ChoreOccurrences
-            .Include(o => o.ChoreTemplate)
             .Include(o => o.Assignee)
             .Include(o => o.Events).ThenInclude(e => e.PerformedByUser)
             .FirstAsync(o => o.Id == occurrenceId && o.HouseholdId == householdId && !o.IsDeleted, ct);
+        var templateInfo = await db.ChoreTemplates
+            .IgnoreQueryFilters()
+            .Where(t => t.Id == occurrence.ChoreTemplateId)
+            .Select(t => new { t.Title, t.IsDeleted })
+            .FirstAsync(ct);
 
         // Apply state transition.
         occurrence.Status = eventType switch
@@ -134,6 +172,9 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             ChoreEventType.Skipped => OccurrenceStatus.Skipped,
             _ => occurrence.Status
         };
+        if (templateInfo.IsDeleted && occurrence.Status != OccurrenceStatus.Completed)
+            occurrence.IsDeleted = true;
+
         occurrence.Version++;
         occurrence.UpdatedAtUtc = clock.UtcNow;
 
@@ -151,7 +192,7 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
         };
         db.ChoreEvents.Add(choreEvent);
 
-        var dto = MapOccurrence(occurrence);
+        var dto = MapOccurrence(occurrence, templateInfo.Title);
 
         db.IdempotentOperations.Add(new IdempotentOperation
         {
@@ -176,10 +217,14 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             return JsonSerializer.Deserialize<ChoreOccurrenceDto>(existing.ResponseJson)!;
 
         var occurrence = await db.ChoreOccurrences
-            .Include(o => o.ChoreTemplate)
             .Include(o => o.Assignee)
             .Include(o => o.Events).ThenInclude(e => e.PerformedByUser)
             .FirstAsync(o => o.Id == occurrenceId && o.HouseholdId == householdId && !o.IsDeleted, ct);
+        var templateTitle = await db.ChoreTemplates
+            .IgnoreQueryFilters()
+            .Where(t => t.Id == occurrence.ChoreTemplateId)
+            .Select(t => t.Title)
+            .FirstAsync(ct);
 
         var previousAssigneeId = occurrence.AssigneeId;
         occurrence.AssigneeId = newAssigneeId;
@@ -202,7 +247,7 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
         };
         db.ChoreEvents.Add(choreEvent);
 
-        var dto = MapOccurrence(occurrence);
+        var dto = MapOccurrence(occurrence, templateTitle);
 
         db.IdempotentOperations.Add(new IdempotentOperation
         {
@@ -240,8 +285,35 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
         t.AssigneeId, t.Assignee?.DisplayName,
         t.StartDate, t.EndDate, t.IsActive, t.CreatedAtUtc);
 
-    private static ChoreOccurrenceDto MapOccurrence(ChoreOccurrence o) => new(
-        o.Id, o.ChoreTemplateId, o.ChoreTemplate.Title,
+    private static RecurrenceRule BuildRecurrenceRule(RecurrenceRuleDto dto)
+    {
+        if (dto.Interval < 1)
+            throw new ArgumentException("Recurrence interval must be at least 1.", nameof(dto));
+
+        List<int> daysOfWeek = dto.Type == RecurrenceType.Weekly ? dto.DaysOfWeek ?? [] : [];
+        if (dto.Type == RecurrenceType.Weekly)
+        {
+            if (daysOfWeek.Count == 0)
+                throw new ArgumentException("Weekly recurrence requires at least one day of week.", nameof(dto));
+
+            if (daysOfWeek.Any(day => day is < 1 or > 7))
+                throw new ArgumentException("Weekly recurrence days must use ISO values 1 through 7.", nameof(dto));
+        }
+
+        if (dto.Type == RecurrenceType.Monthly && dto.DayOfMonth is < 1 or > 31)
+            throw new ArgumentException("Monthly recurrence day must be between 1 and 31.", nameof(dto));
+
+        return new RecurrenceRule
+        {
+            Type = dto.Type,
+            Interval = dto.Interval,
+            DaysOfWeek = daysOfWeek,
+            DayOfMonth = dto.Type == RecurrenceType.Monthly ? dto.DayOfMonth : null
+        };
+    }
+
+    private static ChoreOccurrenceDto MapOccurrence(ChoreOccurrence o, string choreTitle) => new(
+        o.Id, o.ChoreTemplateId, choreTitle,
         o.AssigneeId, o.Assignee?.DisplayName, o.DueDate, o.Status, o.Version,
         o.Events.OrderBy(e => e.OccurredAtUtc).Select(e => new ChoreEventDto(
             e.Id, e.EventType, e.PerformedByUserId,

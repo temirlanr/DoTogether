@@ -5,6 +5,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libgssapi-krb5-2 tzdata \
+    && mkdir -p /home/app/.aspnet/DataProtection-Keys \
+    && chown -R $APP_UID:$APP_UID /home/app/.aspnet \
     && rm -rf /var/lib/apt/lists/*
 USER $APP_UID
 WORKDIR /app
@@ -33,5 +35,6 @@ RUN dotnet publish "./DoTogether.csproj" -c $BUILD_CONFIGURATION -o /app/publish
 # Этот этап используется в рабочей среде или при запуске из VS в обычном режиме (по умолчанию, когда конфигурация отладки не используется)
 FROM base AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
+COPY --from=publish --chown=$APP_UID:$APP_UID /app/publish .
+USER $APP_UID
 ENTRYPOINT ["dotnet", "DoTogether.dll"]

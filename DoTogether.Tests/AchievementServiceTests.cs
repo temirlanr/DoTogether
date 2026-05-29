@@ -50,8 +50,8 @@ public class AchievementServiceTests : IDisposable
     private void SeedBaseData()
     {
         _db.Users.AddRange(
-            new User { Id = _userId, Email = "me@test.com", DisplayName = "Me" },
-            new User { Id = _partnerId, Email = "partner@test.com", DisplayName = "Partner" });
+            new User { Id = _userId, Username = "me", DisplayName = "Me" },
+            new User { Id = _partnerId, Username = "partner", DisplayName = "Partner" });
 
         _db.Households.Add(new Household { Id = _householdId, Name = "Home", TimeZoneId = TZ });
 

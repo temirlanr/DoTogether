@@ -10,7 +10,7 @@ namespace DoTogether.Infrastructure.Services;
 
 public class TokenService(IConfiguration configuration) : ITokenService
 {
-    public string GenerateAccessToken(Guid userId, string email)
+    public (string Token, DateTime ExpiresAtUtc) GenerateAccessToken(Guid userId, string username)
     {
         var key = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(configuration["Jwt:Key"]
@@ -19,19 +19,22 @@ public class TokenService(IConfiguration configuration) : ITokenService
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, email),
+            new Claim(JwtRegisteredClaimNames.PreferredUsername, username),
+            new Claim(ClaimTypes.Name, username),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+
+        var expires = DateTime.UtcNow.AddMinutes(
+            int.TryParse(configuration["Jwt:AccessTokenMinutes"], out var min) ? min : 60);
 
         var token = new JwtSecurityToken(
             issuer: configuration["Jwt:Issuer"],
             audience: configuration["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(
-                int.TryParse(configuration["Jwt:AccessTokenMinutes"], out var min) ? min : 60),
+            expires: expires,
             signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return (new JwtSecurityTokenHandler().WriteToken(token), expires);
     }
 
     public (string Token, DateTime ExpiresAtUtc) GenerateRefreshToken()

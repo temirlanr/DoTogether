@@ -39,7 +39,7 @@ public class IdempotentCompletionTests : IDisposable
 
     private void SeedTestData()
     {
-        var user = new User { Id = _userId, Email = "test@example.com", DisplayName = "Test" };
+        var user = new User { Id = _userId, Username = "testuser", DisplayName = "Test" };
         _db.Users.Add(user);
 
         var household = new Household { Id = _householdId, Name = "Test Home", TimeZoneId = "Etc/UTC" };
@@ -142,7 +142,7 @@ public class IdempotentCompletionTests : IDisposable
     [Fact]
     public async Task Reassign_ChangesAssignee_AndRecordsEvent()
     {
-        var newAssignee = new User { Id = Guid.NewGuid(), Email = "other@example.com", DisplayName = "Other" };
+        var newAssignee = new User { Id = Guid.NewGuid(), Username = "other", DisplayName = "Other" };
         _db.Users.Add(newAssignee);
         _db.HouseholdMembers.Add(new HouseholdMember
         {
@@ -167,7 +167,7 @@ public class IdempotentCompletionTests : IDisposable
     [Fact]
     public async Task Reassign_DuplicateClientOperationId_ReturnsOriginalResponse()
     {
-        var newAssignee = new User { Id = Guid.NewGuid(), Email = "other2@example.com", DisplayName = "Other2" };
+        var newAssignee = new User { Id = Guid.NewGuid(), Username = "other2", DisplayName = "Other2" };
         _db.Users.Add(newAssignee);
         _db.HouseholdMembers.Add(new HouseholdMember
         {

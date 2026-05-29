@@ -12,16 +12,18 @@ namespace DoTogether.Controllers;
 [Authorize]
 public class ChoresController(
     ChoreService choreService,
+    HouseholdAccessService householdAccess,
     ICurrentUserService currentUser) : ControllerBase
 {
     // ── Template CRUD ──
 
-    /// <summary>Create a new chore template and generate initial occurrences.</summary>
+    /// <summary>Create a new chore template and generate initial occurrences. Any household member can do this.</summary>
     [HttpPost("templates")]
     [ProducesResponseType(typeof(ChoreTemplateDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> CreateTemplate(
         Guid householdId, [FromBody] CreateChoreTemplateDto dto, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await choreService.CreateTemplateAsync(householdId, currentUser.UserId, dto, ct);
         return CreatedAtAction(nameof(GetTemplate), new { householdId, templateId = result.Id }, result);
     }
@@ -31,6 +33,7 @@ public class ChoresController(
     [ProducesResponseType(typeof(List<ChoreTemplateDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> ListTemplates(Guid householdId, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await choreService.ListTemplatesAsync(householdId, ct);
         return Ok(result);
     }
@@ -40,25 +43,28 @@ public class ChoresController(
     [ProducesResponseType(typeof(ChoreTemplateDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetTemplate(Guid householdId, Guid templateId, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await choreService.GetTemplateAsync(templateId, householdId, ct);
         return Ok(result);
     }
 
-    /// <summary>Update a chore template (partial update).</summary>
+    /// <summary>Update a chore template (partial update). Any household member can do this.</summary>
     [HttpPatch("templates/{templateId:guid}")]
     [ProducesResponseType(typeof(ChoreTemplateDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> UpdateTemplate(
         Guid householdId, Guid templateId, [FromBody] UpdateChoreTemplateDto dto, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await choreService.UpdateTemplateAsync(templateId, householdId, dto, ct);
         return Ok(result);
     }
 
-    /// <summary>Soft-delete a chore template.</summary>
+    /// <summary>Soft-delete a chore template. Any household member can do this.</summary>
     [HttpDelete("templates/{templateId:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteTemplate(Guid householdId, Guid templateId, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         await choreService.SoftDeleteTemplateAsync(templateId, householdId, ct);
         return NoContent();
     }
@@ -70,6 +76,7 @@ public class ChoresController(
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> GenerateOccurrences(Guid householdId, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         await choreService.GenerateOccurrencesForHouseholdAsync(householdId, ct);
         return NoContent();
     }
@@ -82,6 +89,7 @@ public class ChoresController(
     public async Task<IActionResult> Complete(
         Guid householdId, Guid occurrenceId, [FromBody] MutationRequestDto dto, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await choreService.MutateOccurrenceAsync(
             occurrenceId, householdId, currentUser.UserId,
             ChoreEventType.Completed, dto.ClientOperationId, null, ct);
@@ -94,6 +102,7 @@ public class ChoresController(
     public async Task<IActionResult> Undo(
         Guid householdId, Guid occurrenceId, [FromBody] MutationRequestDto dto, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await choreService.MutateOccurrenceAsync(
             occurrenceId, householdId, currentUser.UserId,
             ChoreEventType.Undone, dto.ClientOperationId, null, ct);
@@ -106,6 +115,7 @@ public class ChoresController(
     public async Task<IActionResult> Skip(
         Guid householdId, Guid occurrenceId, [FromBody] MutationRequestDto dto, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await choreService.MutateOccurrenceAsync(
             occurrenceId, householdId, currentUser.UserId,
             ChoreEventType.Skipped, dto.ClientOperationId, null, ct);
@@ -118,6 +128,7 @@ public class ChoresController(
     public async Task<IActionResult> Reassign(
         Guid householdId, Guid occurrenceId, [FromBody] ReassignRequestDto dto, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await choreService.ReassignOccurrenceAsync(
             occurrenceId, householdId, currentUser.UserId,
             dto.NewAssigneeId, dto.ClientOperationId, ct);

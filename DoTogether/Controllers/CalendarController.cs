@@ -11,6 +11,8 @@ namespace DoTogether.Controllers;
 [Authorize]
 public class CalendarController(
     CalendarService calendarService,
+    HouseholdAccessService householdAccess,
+    ICurrentUserService currentUser,
     IAppDbContext db) : ControllerBase
 {
     /// <summary>
@@ -21,6 +23,8 @@ public class CalendarController(
     public async Task<IActionResult> GetAggregates(
         Guid householdId, [FromQuery] CalendarQueryDto query, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
+
         var household = await db.Households.FindAsync([householdId], ct)
             ?? throw new KeyNotFoundException("Household not found.");
 
@@ -37,6 +41,8 @@ public class CalendarController(
     public async Task<IActionResult> GetOccurrences(
         Guid householdId, [FromQuery] CalendarQueryDto query, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
+
         var household = await db.Households.FindAsync([householdId], ct)
             ?? throw new KeyNotFoundException("Household not found.");
 

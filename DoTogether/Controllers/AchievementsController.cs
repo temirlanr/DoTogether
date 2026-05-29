@@ -18,6 +18,7 @@ namespace DoTogether.Controllers;
 [Authorize]
 public class AchievementsController(
     AchievementService achievementService,
+    HouseholdAccessService householdAccess,
     IAppDbContext db,
     ICurrentUserService currentUser) : ControllerBase
 {
@@ -77,6 +78,8 @@ public class AchievementsController(
     private async Task<(string TimeZoneId, Guid? FilterUserId)> ResolveContextAsync(
         Guid householdId, AchievementScope scope, CancellationToken ct)
     {
+        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
+
         var household = await db.Households.FindAsync([householdId], ct)
             ?? throw new KeyNotFoundException("Household not found.");
 

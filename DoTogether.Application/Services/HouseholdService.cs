@@ -1,4 +1,5 @@
 ﻿using DoTogether.Application.DTOs;
+using DoTogether.Application.Exceptions;
 using DoTogether.Application.Interfaces;
 using DoTogether.Domain.Entities;
 using DoTogether.Domain.Enums;
@@ -8,14 +9,31 @@ namespace DoTogether.Application.Services;
 
 public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
 {
+    private static readonly TimeSpan InviteTokenLifetime = TimeSpan.FromDays(3650);
+
+    public async Task<HouseholdDto> UpdateAsync(Guid householdId, Guid actorUserId, UpdateHouseholdDto dto, CancellationToken ct)
+    {
+        await EnsureAdminMemberAsync(householdId, actorUserId, ct);
+
+        var household = await db.Households
+            .FirstOrDefaultAsync(h => h.Id == householdId && !h.IsDeleted, ct)
+            ?? throw ApiProblemException.NotFound("household_not_found", "Household not found.");
+
+        household.Name = dto.Name.Trim();
+        household.UpdatedAtUtc = clock.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return await GetByIdAsync(householdId, ct);
+    }
+
     public async Task<HouseholdDto> CreateAsync(Guid userId, CreateHouseholdDto dto, CancellationToken ct)
     {
         if (!await db.Users.AnyAsync(u => u.Id == userId, ct))
-            throw new UnauthorizedAccessException("Authenticated user not found.");
+            throw ApiProblemException.Unauthorized("unauthenticated", "Authenticated user not found.");
 
         // Validate timezone.
         if (!TimeZoneInfo.TryFindSystemTimeZoneById(dto.TimeZoneId, out _))
-            throw new ArgumentException($"Invalid timezone: {dto.TimeZoneId}");
+            throw ApiProblemException.BadRequest("invalid_timezone", $"Invalid timezone: {dto.TimeZoneId}");
 
         var household = new Household
         {
@@ -23,15 +41,18 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
             TimeZoneId = dto.TimeZoneId
         };
 
+        var now = clock.UtcNow;
+
         var member = new HouseholdMember
         {
             HouseholdId = household.Id,
             UserId = userId,
             Role = MemberRole.Admin,
-            JoinedAtUtc = clock.UtcNow
+            JoinedAtUtc = now
         };
 
         household.Members.Add(member);
+        household.Invites.Add(CreateInvite(household.Id, now));
         db.Households.Add(household);
         await db.SaveChangesAsync(ct);
 
@@ -58,72 +79,239 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
         return memberOf.Select(MapHousehold).ToList();
     }
 
-    public async Task<InviteResponseDto> InviteMemberAsync(
-        Guid householdId, Guid inviterId, InviteMemberDto dto, CancellationToken ct)
+    public async Task<InviteResponseDto> GetInviteTokenAsync(Guid householdId, Guid requesterId, CancellationToken ct)
     {
-        // Verify inviter is admin.
-        var inviterMember = await db.HouseholdMembers
-            .FirstAsync(m => m.HouseholdId == householdId && m.UserId == inviterId && !m.IsDeleted, ct);
+        await EnsureMemberAsync(householdId, requesterId, ct);
+        await EnsureHouseholdCanAcceptInviteAsync(householdId, ct);
 
-        if (inviterMember.Role != MemberRole.Admin)
-            throw new UnauthorizedAccessException("Only admins can invite members.");
+        var now = clock.UtcNow;
+        var invite = await db.HouseholdInvites
+            .Where(i => i.HouseholdId == householdId && !i.Accepted && i.ExpiresAtUtc > now && !i.IsDeleted)
+            .OrderByDescending(i => i.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
 
-        // Check household size limit (2-person household).
-        var memberCount = await db.HouseholdMembers
-            .CountAsync(m => m.HouseholdId == householdId && !m.IsDeleted, ct);
-
-        if (memberCount >= 2)
-            throw new InvalidOperationException("Household already has 2 members.");
-
-        var invite = new HouseholdInvite
+        if (invite is null)
         {
-            HouseholdId = householdId,
-            InviteeEmail = dto.Email.ToLowerInvariant(),
-            ExpiresAtUtc = clock.UtcNow.AddDays(7)
-        };
+            invite = CreateInvite(householdId, now);
+            db.HouseholdInvites.Add(invite);
+            await db.SaveChangesAsync(ct);
+        }
+
+        return MapInvite(invite);
+    }
+
+    public async Task<InviteResponseDto> RegenerateInviteTokenAsync(Guid householdId, Guid requesterId, CancellationToken ct)
+    {
+        await EnsureMemberAsync(householdId, requesterId, ct);
+        await EnsureHouseholdCanAcceptInviteAsync(householdId, ct);
+
+        var now = clock.UtcNow;
+        var existingInvites = await db.HouseholdInvites
+            .Where(i => i.HouseholdId == householdId && !i.Accepted && !i.IsDeleted)
+            .ToListAsync(ct);
+
+        foreach (var existingInvite in existingInvites)
+        {
+            existingInvite.IsDeleted = true;
+            existingInvite.UpdatedAtUtc = now;
+        }
+
+        var invite = CreateInvite(householdId, now);
 
         db.HouseholdInvites.Add(invite);
         await db.SaveChangesAsync(ct);
 
-        return new InviteResponseDto(invite.Id, invite.Token, invite.ExpiresAtUtc);
+        return MapInvite(invite);
     }
 
     public async Task<HouseholdDto> JoinAsync(Guid userId, JoinHouseholdDto dto, CancellationToken ct)
     {
         var invite = await db.HouseholdInvites
-            .FirstAsync(i => i.Token == dto.InviteToken && !i.Accepted && !i.IsDeleted, ct);
+            .FirstOrDefaultAsync(i => i.Token == dto.InviteToken && !i.Accepted && !i.IsDeleted, ct)
+            ?? throw ApiProblemException.NotFound("invite_not_found", "Invite not found or already used.");
 
-        if (invite.ExpiresAtUtc < clock.UtcNow)
-            throw new InvalidOperationException("Invite has expired.");
+        var now = clock.UtcNow;
 
-        var user = await db.Users.FirstAsync(u => u.Id == userId, ct);
-        if (!string.Equals(user.Email, invite.InviteeEmail, StringComparison.OrdinalIgnoreCase))
-            throw new UnauthorizedAccessException("Invite was sent to a different email address.");
+        if (invite.ExpiresAtUtc < now)
+            throw ApiProblemException.BadRequest("invite_expired", "Invite has expired.");
+
+        var existingMember = await db.HouseholdMembers
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(m => m.HouseholdId == invite.HouseholdId && m.UserId == userId, ct);
+
+        if (existingMember is { IsDeleted: false })
+            return await GetByIdAsync(invite.HouseholdId, ct);
 
         var memberCount = await db.HouseholdMembers
             .CountAsync(m => m.HouseholdId == invite.HouseholdId && !m.IsDeleted, ct);
 
         if (memberCount >= 2)
-            throw new InvalidOperationException("Household already has 2 members.");
+            throw ApiProblemException.Conflict("household_full", "Household already has 2 members.");
 
         invite.Accepted = true;
 
-        var member = new HouseholdMember
+        if (existingMember is null)
         {
-            HouseholdId = invite.HouseholdId,
-            UserId = userId,
-            Role = MemberRole.Member,
-            JoinedAtUtc = clock.UtcNow
-        };
+            var member = new HouseholdMember
+            {
+                HouseholdId = invite.HouseholdId,
+                UserId = userId,
+                Role = MemberRole.Member,
+                JoinedAtUtc = now,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
 
-        db.HouseholdMembers.Add(member);
+            db.HouseholdMembers.Add(member);
+        }
+        else
+        {
+            existingMember.IsDeleted = false;
+            existingMember.Role = MemberRole.Member;
+            existingMember.JoinedAtUtc = now;
+            existingMember.UpdatedAtUtc = now;
+        }
+
         await db.SaveChangesAsync(ct);
 
         return await GetByIdAsync(invite.HouseholdId, ct);
     }
 
+    public async Task<HouseholdDto> UpdateMemberRoleAsync(
+        Guid householdId,
+        Guid actorUserId,
+        Guid memberUserId,
+        UpdateHouseholdMemberRoleDto dto,
+        CancellationToken ct)
+    {
+        await EnsureAdminMemberAsync(householdId, actorUserId, ct);
+
+        var targetMember = await db.HouseholdMembers
+            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == memberUserId && !m.IsDeleted, ct)
+            ?? throw ApiProblemException.NotFound("household_member_not_found", "Household member not found.");
+
+        if (targetMember.Role == dto.Role)
+            return await GetByIdAsync(householdId, ct);
+
+        if (targetMember.Role == MemberRole.Admin && dto.Role != MemberRole.Admin)
+        {
+            var otherAdminExists = await db.HouseholdMembers.AnyAsync(
+                m => m.HouseholdId == householdId
+                    && m.UserId != memberUserId
+                    && m.Role == MemberRole.Admin
+                    && !m.IsDeleted,
+                ct);
+
+            if (!otherAdminExists)
+                throw ApiProblemException.Conflict("last_admin_required", "Household must have at least one admin.");
+        }
+
+        targetMember.Role = dto.Role;
+        await db.SaveChangesAsync(ct);
+
+        return await GetByIdAsync(householdId, ct);
+    }
+
+    public async Task<HouseholdDto> RemoveMemberAsync(
+        Guid householdId,
+        Guid actorUserId,
+        Guid memberUserId,
+        CancellationToken ct)
+    {
+        await EnsureAdminMemberAsync(householdId, actorUserId, ct);
+
+        if (actorUserId == memberUserId)
+            throw ApiProblemException.BadRequest("household_self_remove_not_allowed", "Use the leave action to remove yourself from the household.");
+
+        var targetMember = await db.HouseholdMembers
+            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == memberUserId && !m.IsDeleted, ct)
+            ?? throw ApiProblemException.NotFound("household_member_not_found", "Household member not found.");
+
+        targetMember.IsDeleted = true;
+        targetMember.UpdatedAtUtc = clock.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return await GetByIdAsync(householdId, ct);
+    }
+
+    public async Task LeaveAsync(Guid householdId, Guid userId, CancellationToken ct)
+    {
+        var departingMember = await EnsureMemberAsync(householdId, userId, ct);
+        var now = clock.UtcNow;
+
+        departingMember.IsDeleted = true;
+        departingMember.UpdatedAtUtc = now;
+
+        var remainingMembers = await db.HouseholdMembers
+            .Where(m => m.HouseholdId == householdId && m.UserId != userId && !m.IsDeleted)
+            .OrderBy(m => m.JoinedAtUtc)
+            .ToListAsync(ct);
+
+        if (remainingMembers.Count == 0)
+        {
+            var household = await db.Households
+                .FirstOrDefaultAsync(h => h.Id == householdId && !h.IsDeleted, ct)
+                ?? throw ApiProblemException.NotFound("household_not_found", "Household not found.");
+
+            household.IsDeleted = true;
+            household.UpdatedAtUtc = now;
+
+            var activeInvites = await db.HouseholdInvites
+                .Where(i => i.HouseholdId == householdId && !i.IsDeleted)
+                .ToListAsync(ct);
+
+            foreach (var invite in activeInvites)
+            {
+                invite.IsDeleted = true;
+                invite.UpdatedAtUtc = now;
+            }
+        }
+        else if (departingMember.Role == MemberRole.Admin && remainingMembers.All(member => member.Role != MemberRole.Admin))
+        {
+            remainingMembers[0].Role = MemberRole.Admin;
+            remainingMembers[0].UpdatedAtUtc = now;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<HouseholdMember> EnsureMemberAsync(Guid householdId, Guid userId, CancellationToken ct)
+    {
+        return await db.HouseholdMembers
+            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == userId && !m.IsDeleted, ct)
+            ?? throw ApiProblemException.Forbidden("household_access_denied", "You do not have access to this household.");
+    }
+
+    private async Task<HouseholdMember> EnsureAdminMemberAsync(Guid householdId, Guid userId, CancellationToken ct)
+    {
+        var member = await EnsureMemberAsync(householdId, userId, ct);
+        if (member.Role != MemberRole.Admin)
+            throw ApiProblemException.Forbidden("household_admin_required", "Only household admins can perform this action.");
+
+        return member;
+    }
+
+    private async Task EnsureHouseholdCanAcceptInviteAsync(Guid householdId, CancellationToken ct)
+    {
+        var memberCount = await db.HouseholdMembers
+            .CountAsync(m => m.HouseholdId == householdId && !m.IsDeleted, ct);
+
+        if (memberCount >= 2)
+            throw ApiProblemException.Conflict("household_full", "Household already has 2 members.");
+    }
+
+    private static HouseholdInvite CreateInvite(Guid householdId, DateTime now) => new()
+    {
+        HouseholdId = householdId,
+        ExpiresAtUtc = now.Add(InviteTokenLifetime),
+        CreatedAtUtc = now,
+        UpdatedAtUtc = now
+    };
+
+    private static InviteResponseDto MapInvite(HouseholdInvite invite) => new(invite.Id, invite.Token, invite.ExpiresAtUtc);
+
     private static HouseholdDto MapHousehold(Household h) => new(
         h.Id, h.Name, h.TimeZoneId,
         h.Members.Where(m => !m.IsDeleted).Select(m => new HouseholdMemberDto(
-            m.UserId, m.User.DisplayName, m.User.Email, m.Role, m.JoinedAtUtc)).ToList());
+            m.UserId, m.User.DisplayName, m.User.Username, m.Role, m.JoinedAtUtc)).ToList());
 }

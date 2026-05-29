@@ -17,4 +17,6 @@ public class Household : BaseEntity
     public ICollection<HouseholdMember> Members { get; set; } = [];
     public ICollection<HouseholdInvite> Invites { get; set; } = [];
     public ICollection<ChoreTemplate> ChoreTemplates { get; set; } = [];
+    public ICollection<HouseholdRecipe> Recipes { get; set; } = [];
+    public ICollection<MealPlanEntry> MealPlanEntries { get; set; } = [];
 }

@@ -30,7 +30,7 @@ public class CalendarService(IAppDbContext db, OccurrenceService occurrenceServi
             .GroupBy(o => o.DueDate)
             .Select(g => new DayAggregateDto(
                 g.Key,
-                g.Count(),
+                g.Count(o => o.Status == OccurrenceStatus.Pending),
                 g.Count(o => o.Status == OccurrenceStatus.Completed),
                 g.Count(o => o.Status == OccurrenceStatus.Missed),
                 g.Count(o => o.Status == OccurrenceStatus.Skipped)))
@@ -48,7 +48,6 @@ public class CalendarService(IAppDbContext db, OccurrenceService occurrenceServi
         await db.SaveChangesAsync(ct);
 
         var query = db.ChoreOccurrences
-            .Include(o => o.ChoreTemplate)
             .Include(o => o.Assignee)
             .Include(o => o.Events).ThenInclude(e => e.PerformedByUser)
             .Where(o => o.HouseholdId == householdId
@@ -59,11 +58,17 @@ public class CalendarService(IAppDbContext db, OccurrenceService occurrenceServi
             query = query.Where(o => o.AssigneeId == assigneeId.Value);
 
         var occurrences = await query.OrderBy(o => o.DueDate).ToListAsync(ct);
+        var templateIds = occurrences.Select(o => o.ChoreTemplateId).Distinct().ToList();
+        var templateTitles = await db.ChoreTemplates
+            .IgnoreQueryFilters()
+            .Where(t => templateIds.Contains(t.Id))
+            .Select(t => new { t.Id, t.Title })
+            .ToDictionaryAsync(t => t.Id, t => t.Title, ct);
 
         return occurrences.Select(o => new ChoreOccurrenceDto(
             o.Id,
             o.ChoreTemplateId,
-            o.ChoreTemplate.Title,
+            templateTitles.GetValueOrDefault(o.ChoreTemplateId) ?? string.Empty,
             o.AssigneeId,
             o.Assignee?.DisplayName,
             o.DueDate,

@@ -38,7 +38,7 @@ public class OccurrenceServiceTests : IDisposable
 
     private void SeedBase()
     {
-        _db.Users.Add(new User { Id = _userId, Email = "t@e.com", DisplayName = "T" });
+        _db.Users.Add(new User { Id = _userId, Username = "tester", DisplayName = "T" });
         _db.Households.Add(new Household { Id = _householdId, Name = "H", TimeZoneId = TimeZone });
         _db.SaveChanges();
     }

@@ -124,8 +124,14 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
 
         // Query 1: thin projection — grouping done in memory to avoid EF GroupBy limits.
         var occurrences = await query
-            .Select(o => new { o.Id, o.DueDate, o.Status, o.ChoreTemplateId, Title = o.ChoreTemplate.Title })
+            .Select(o => new { o.Id, o.DueDate, o.Status, o.ChoreTemplateId })
             .ToListAsync(ct);
+        var templateIds = occurrences.Select(o => o.ChoreTemplateId).Distinct().ToList();
+        var templateTitles = await db.ChoreTemplates
+            .IgnoreQueryFilters()
+            .Where(t => templateIds.Contains(t.Id))
+            .Select(t => new { t.Id, t.Title })
+            .ToDictionaryAsync(t => t.Id, t => t.Title, ct);
 
         var totalScheduled = occurrences.Count;
         var completed = occurrences.Where(o => o.Status == OccurrenceStatus.Completed).ToList();
@@ -139,7 +145,11 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
             .ToList();
 
         var topTemplates = completed
-            .GroupBy(o => new { o.ChoreTemplateId, o.Title })
+            .GroupBy(o => new
+            {
+                o.ChoreTemplateId,
+                Title = templateTitles.GetValueOrDefault(o.ChoreTemplateId) ?? string.Empty
+            })
             .Select(g => new TopTemplateDto(g.Key.ChoreTemplateId, g.Key.Title, g.Count()))
             .OrderByDescending(t => t.CompletedCount)
             .Take(5)
@@ -184,9 +194,15 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
                 e.ChoreOccurrenceId,
                 e.OccurredAtUtc,
                 e.ChoreOccurrence.DueDate,
-                Title = e.ChoreOccurrence.ChoreTemplate.Title
+                e.ChoreOccurrence.ChoreTemplateId
             })
             .ToListAsync(ct);
+        var eventTemplateIds = events.Select(e => e.ChoreTemplateId).Distinct().ToList();
+        var eventTemplateTitles = await db.ChoreTemplates
+            .IgnoreQueryFilters()
+            .Where(t => eventTemplateIds.Contains(t.Id))
+            .Select(t => new { t.Id, t.Title })
+            .ToDictionaryAsync(t => t.Id, t => t.Title, ct);
 
         // De-dupe by occurrence: take the latest event per occurrence.
         var completions = events
@@ -197,7 +213,7 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
                 var dueDateEndUtc = GetEndOfDayUtc(latest.DueDate, tz);
                 return new TodayCompletionDto(
                     latest.ChoreOccurrenceId,
-                    latest.Title,
+                    eventTemplateTitles.GetValueOrDefault(latest.ChoreTemplateId) ?? string.Empty,
                     latest.OccurredAtUtc,
                     latest.DueDate,
                     latest.OccurredAtUtc > dueDateEndUtc);

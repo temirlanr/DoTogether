@@ -158,6 +158,12 @@ namespace DoTogether.Infrastructure.Data.Migrations
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AssigneeId");
@@ -251,11 +257,6 @@ namespace DoTogether.Infrastructure.Data.Migrations
                     b.Property<Guid>("HouseholdId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("InviteeEmail")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
@@ -309,9 +310,118 @@ namespace DoTogether.Infrastructure.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.HasIndex("HouseholdId", "UserId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = FALSE");
 
                     b.ToTable("HouseholdMembers");
+                });
+
+            modelBuilder.Entity("DoTogether.Domain.Entities.HouseholdRecipe", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("CaloriesKcal")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("CarbsGrams")
+                        .HasColumnType("numeric");
+
+                    b.Property<int?>("CookMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<decimal?>("FatGrams")
+                        .HasColumnType("numeric");
+
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ImportWarningsJson")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("OriginType")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PrepMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("ProteinGrams")
+                        .HasColumnType("numeric");
+
+                    b.Property<int?>("Servings")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceAttribution")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SourceDomain")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("SourceRequiresManualReview")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SourceUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("TagsJson")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("TotalMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("YieldText")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("HouseholdId", "IsArchived", "Name");
+
+                    b.ToTable("HouseholdRecipes");
                 });
 
             modelBuilder.Entity("DoTogether.Domain.Entities.IdempotentOperation", b =>
@@ -340,6 +450,136 @@ namespace DoTogether.Infrastructure.Data.Migrations
                     b.HasIndex("HouseholdId");
 
                     b.ToTable("IdempotentOperations");
+                });
+
+            modelBuilder.Entity("DoTogether.Domain.Entities.MealPlanEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("HouseholdId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("MealSlot")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("RecipeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ServingsPlanned")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("RecipeId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("HouseholdId", "Date", "MealSlot")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = FALSE");
+
+                    b.HasIndex("HouseholdId", "RecipeId", "Date");
+
+                    b.ToTable("MealPlanEntries");
+                });
+
+            modelBuilder.Entity("DoTogether.Domain.Entities.RecipeIngredient", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("HouseholdRecipeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Item")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("Quantity")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("RawText")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HouseholdRecipeId", "SortOrder");
+
+                    b.ToTable("RecipeIngredients");
+                });
+
+            modelBuilder.Entity("DoTogether.Domain.Entities.RecipeInstructionStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("HouseholdRecipeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Section")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HouseholdRecipeId", "SortOrder");
+
+                    b.ToTable("RecipeInstructionSteps");
                 });
 
             modelBuilder.Entity("DoTogether.Domain.Entities.RefreshToken", b =>
@@ -398,13 +638,23 @@ namespace DoTogether.Infrastructure.Data.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
-                    b.Property<string>("Email")
+                    b.Property<string>("Username")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("Email");
+
+                    b.Property<int>("FailedLoginAttempts")
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
+
+                    b.Property<int>("LockoutCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LockoutEndsAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -416,8 +666,9 @@ namespace DoTogether.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Email")
-                        .IsUnique();
+                    b.HasIndex("Username")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Users_Email");
 
                     b.ToTable("Users");
                 });
@@ -562,6 +813,88 @@ namespace DoTogether.Infrastructure.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("DoTogether.Domain.Entities.HouseholdRecipe", b =>
+                {
+                    b.HasOne("DoTogether.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoTogether.Domain.Entities.Household", "Household")
+                        .WithMany("Recipes")
+                        .HasForeignKey("HouseholdId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DoTogether.Domain.Entities.User", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Household");
+
+                    b.Navigation("UpdatedByUser");
+                });
+
+            modelBuilder.Entity("DoTogether.Domain.Entities.MealPlanEntry", b =>
+                {
+                    b.HasOne("DoTogether.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoTogether.Domain.Entities.Household", "Household")
+                        .WithMany("MealPlanEntries")
+                        .HasForeignKey("HouseholdId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoTogether.Domain.Entities.HouseholdRecipe", "Recipe")
+                        .WithMany("MealPlanEntries")
+                        .HasForeignKey("RecipeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoTogether.Domain.Entities.User", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Household");
+
+                    b.Navigation("Recipe");
+
+                    b.Navigation("UpdatedByUser");
+                });
+
+            modelBuilder.Entity("DoTogether.Domain.Entities.RecipeIngredient", b =>
+                {
+                    b.HasOne("DoTogether.Domain.Entities.HouseholdRecipe", "HouseholdRecipe")
+                        .WithMany("Ingredients")
+                        .HasForeignKey("HouseholdRecipeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("HouseholdRecipe");
+                });
+
+            modelBuilder.Entity("DoTogether.Domain.Entities.RecipeInstructionStep", b =>
+                {
+                    b.HasOne("DoTogether.Domain.Entities.HouseholdRecipe", "HouseholdRecipe")
+                        .WithMany("Instructions")
+                        .HasForeignKey("HouseholdRecipeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("HouseholdRecipe");
+                });
+
             modelBuilder.Entity("DoTogether.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("DoTogether.Domain.Entities.User", "User")
@@ -589,7 +922,20 @@ namespace DoTogether.Infrastructure.Data.Migrations
 
                     b.Navigation("Invites");
 
+                    b.Navigation("MealPlanEntries");
+
                     b.Navigation("Members");
+
+                    b.Navigation("Recipes");
+                });
+
+            modelBuilder.Entity("DoTogether.Domain.Entities.HouseholdRecipe", b =>
+                {
+                    b.Navigation("Ingredients");
+
+                    b.Navigation("Instructions");
+
+                    b.Navigation("MealPlanEntries");
                 });
 
             modelBuilder.Entity("DoTogether.Domain.Entities.User", b =>

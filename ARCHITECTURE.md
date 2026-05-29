@@ -18,22 +18,22 @@
 └──────────────────────────────────────────────────────┘
 ```
 
-| Layer | Responsibility | Dependencies |
-|---|---|---|
-| **Domain** | Entities, value objects, enums. Zero dependencies. | — |
-| **Application** | Business logic (services), DTOs, interface contracts. | Domain |
-| **Infrastructure** | EF Core, PostgreSQL, JWT, external concerns. | Application, Domain |
-| **WebApi** | ASP.NET Core controllers, middleware, DI wiring. | Infrastructure (transitive to all) |
+| Layer              | Responsibility                                        | Dependencies                       |
+| ------------------ | ----------------------------------------------------- | ---------------------------------- |
+| **Domain**         | Entities, value objects, enums. Zero dependencies.    | —                                  |
+| **Application**    | Business logic (services), DTOs, interface contracts. | Domain                             |
+| **Infrastructure** | EF Core, PostgreSQL, JWT, external concerns.          | Application, Domain                |
+| **WebApi**         | ASP.NET Core controllers, middleware, DI wiring.      | Infrastructure (transitive to all) |
 
 ## 2. Domain Model
 
 ### Core separation
 
-| Entity | Purpose |
-|---|---|
-| `ChoreTemplate` | Recurring chore definition (title, recurrence rule, assignee, start/end date). |
-| `ChoreOccurrence` | A specific instance generated from a template for a particular due date. |
-| `ChoreEvent` | Immutable audit/history record. Every state change produces one event. |
+| Entity            | Purpose                                                                        |
+| ----------------- | ------------------------------------------------------------------------------ |
+| `ChoreTemplate`   | Recurring chore definition (title, recurrence rule, assignee, start/end date). |
+| `ChoreOccurrence` | A specific instance generated from a template for a particular due date.       |
+| `ChoreEvent`      | Immutable audit/history record. Every state change produces one event.         |
 
 ### Recurrence engine
 
@@ -55,7 +55,7 @@ Because due dates are `DateOnly` (not instants), DST transitions never create am
 
 ## 3. Authentication & Device Tokens
 
-- **Magic-link flow**: client sends email → server generates a 6-digit code (MVP returns it directly; production sends via email) → client verifies → receives JWT access token + refresh token.
+- **Username/password flow**: client registers with username, display name, and password, then logs in with username and password to receive a JWT access token plus refresh token.
 - **Refresh token rotation**: on refresh, the old token is revoked and replaced.
 - **Device push tokens**: `DevicePushToken` entity stores FCM/APNs tokens per user, ready for push notification integration.
 
@@ -78,13 +78,13 @@ Every mutation endpoint (`complete`, `undo`, `skip`, `reassign`) requires a `cli
 
 All errors are returned as **RFC 9457 Problem Details** via `ExceptionHandlingMiddleware`:
 
-| Exception | HTTP Status |
-|---|---|
-| `UnauthorizedAccessException` | 403 |
-| `InvalidOperationException` | 409 |
-| `ArgumentException` | 400 |
-| `KeyNotFoundException` | 404 |
-| Other | 500 |
+| Exception                     | HTTP Status |
+| ----------------------------- | ----------- |
+| `UnauthorizedAccessException` | 403         |
+| `InvalidOperationException`   | 409         |
+| `ArgumentException`           | 400         |
+| `KeyNotFoundException`        | 404         |
+| Other                         | 500         |
 
 ## 7. Local Development
 

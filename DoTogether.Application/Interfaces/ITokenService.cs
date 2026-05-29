@@ -2,7 +2,7 @@
 
 public interface ITokenService
 {
-    string GenerateAccessToken(Guid userId, string email);
+    (string Token, DateTime ExpiresAtUtc) GenerateAccessToken(Guid userId, string username);
     (string Token, DateTime ExpiresAtUtc) GenerateRefreshToken();
     Guid? ValidateAccessToken(string token);
 }

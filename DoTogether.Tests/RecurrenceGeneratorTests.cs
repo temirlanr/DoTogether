@@ -101,6 +101,26 @@ public class RecurrenceGeneratorTests
     }
 
     [Fact]
+    public void Weekly_SundayIso7_ReturnsSundays()
+    {
+        var rule = new RecurrenceRule
+        {
+            Type = RecurrenceType.Weekly,
+            Interval = 1,
+            DaysOfWeek = [7]
+        };
+        var start = new DateOnly(2025, 1, 5);
+
+        var result = RecurrenceGenerator.Generate(rule, start, start, new DateOnly(2025, 1, 18));
+
+        Assert.Equal([
+            new DateOnly(2025, 1, 5),
+            new DateOnly(2025, 1, 12)
+        ], result);
+        Assert.All(result, date => Assert.Equal(DayOfWeek.Sunday, date.DayOfWeek));
+    }
+
+    [Fact]
     public void Weekly_NoDaysOfWeek_Throws()
     {
         var rule = new RecurrenceRule { Type = RecurrenceType.Weekly, Interval = 1, DaysOfWeek = [] };
