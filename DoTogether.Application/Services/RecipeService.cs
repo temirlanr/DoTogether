@@ -24,24 +24,33 @@ public class RecipeService(
         await householdAccess.EnsureMemberAsync(householdId, userId, ct);
 
         var query = db.HouseholdRecipes
-            .Include(r => r.Ingredients)
-            .Include(r => r.Instructions)
-            .Where(r => r.HouseholdId == householdId && !r.IsDeleted);
+            .AsNoTracking()
+            .Where(r => r.HouseholdId == householdId);
 
         if (!includeArchived)
             query = query.Where(r => !r.IsArchived);
 
-        var recipes = await query
+        return await query
             .OrderBy(r => r.Name)
+            .Select(r => new RecipeSummaryDto(
+                r.Id,
+                r.Name,
+                r.Description,
+                r.OriginType,
+                r.Ingredients.Count,
+                r.Instructions.Count,
+                r.Servings,
+                r.ImageUrl,
+                r.IsArchived,
+                r.UpdatedAtUtc,
+                DeserializeTags(r.TagsJson)))
             .ToListAsync(ct);
-
-        return recipes.Select(MapSummary).ToList();
     }
 
     public async Task<RecipeDetailDto> GetAsync(Guid householdId, Guid recipeId, Guid userId, CancellationToken ct)
     {
         await householdAccess.EnsureMemberAsync(householdId, userId, ct);
-        var recipe = await LoadRecipeAsync(householdId, recipeId, ct);
+        var recipe = await LoadRecipeAsync(householdId, recipeId, ct, track: false);
         return MapDetail(recipe);
     }
 
@@ -102,7 +111,7 @@ public class RecipeService(
         await householdAccess.EnsureMemberAsync(householdId, userId, ct);
 
         var recipe = await db.HouseholdRecipes
-            .FirstOrDefaultAsync(r => r.Id == recipeId && r.HouseholdId == householdId && !r.IsDeleted, ct)
+            .FirstOrDefaultAsync(r => r.Id == recipeId && r.HouseholdId == householdId, ct)
             ?? throw ApiProblemException.NotFound("recipe_not_found", "Recipe not found.");
 
         recipe.IsArchived = true;
@@ -111,12 +120,13 @@ public class RecipeService(
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<HouseholdRecipe> LoadRecipeAsync(Guid householdId, Guid recipeId, CancellationToken ct)
+    private async Task<HouseholdRecipe> LoadRecipeAsync(Guid householdId, Guid recipeId, CancellationToken ct, bool track = true)
     {
-        return await db.HouseholdRecipes
+        var query = track ? db.HouseholdRecipes : db.HouseholdRecipes.AsNoTracking();
+        return await query
             .Include(r => r.Ingredients)
             .Include(r => r.Instructions)
-            .FirstOrDefaultAsync(r => r.Id == recipeId && r.HouseholdId == householdId && !r.IsDeleted, ct)
+            .FirstOrDefaultAsync(r => r.Id == recipeId && r.HouseholdId == householdId, ct)
             ?? throw ApiProblemException.NotFound("recipe_not_found", "Recipe not found.");
     }
 
@@ -233,19 +243,6 @@ public class RecipeService(
             })
             .ToList();
     }
-
-    private static RecipeSummaryDto MapSummary(HouseholdRecipe recipe) => new(
-        recipe.Id,
-        recipe.Name,
-        recipe.Description,
-        recipe.OriginType,
-        recipe.Ingredients.Count,
-        recipe.Instructions.Count,
-        recipe.Servings,
-        recipe.ImageUrl,
-        recipe.IsArchived,
-        recipe.UpdatedAtUtc,
-        DeserializeTags(recipe.TagsJson));
 
     private static RecipeDetailDto MapDetail(HouseholdRecipe recipe) => new(
         recipe.Id,

@@ -9,14 +9,14 @@ namespace DoTogether.Application.Services;
 
 public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
 {
-    private static readonly TimeSpan InviteTokenLifetime = TimeSpan.FromDays(3650);
+    private static readonly TimeSpan InviteTokenLifetime = TimeSpan.FromDays(7);
 
     public async Task<HouseholdDto> UpdateAsync(Guid householdId, Guid actorUserId, UpdateHouseholdDto dto, CancellationToken ct)
     {
         await EnsureAdminMemberAsync(householdId, actorUserId, ct);
 
         var household = await db.Households
-            .FirstOrDefaultAsync(h => h.Id == householdId && !h.IsDeleted, ct)
+            .FirstOrDefaultAsync(h => h.Id == householdId, ct)
             ?? throw ApiProblemException.NotFound("household_not_found", "Household not found.");
 
         household.Name = dto.Name.Trim();
@@ -62,8 +62,9 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
     public async Task<HouseholdDto> GetByIdAsync(Guid householdId, CancellationToken ct)
     {
         var h = await db.Households
+            .AsNoTracking()
             .Include(x => x.Members).ThenInclude(m => m.User)
-            .FirstAsync(x => x.Id == householdId && !x.IsDeleted, ct);
+            .FirstAsync(x => x.Id == householdId, ct);
 
         return MapHousehold(h);
     }
@@ -71,8 +72,9 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
     public async Task<List<HouseholdDto>> GetForUserAsync(Guid userId, CancellationToken ct)
     {
         var memberOf = await db.HouseholdMembers
+            .AsNoTracking()
             .Include(m => m.Household).ThenInclude(h => h.Members).ThenInclude(m => m.User)
-            .Where(m => m.UserId == userId && !m.IsDeleted && !m.Household.IsDeleted)
+            .Where(m => m.UserId == userId)
             .Select(m => m.Household)
             .ToListAsync(ct);
 
@@ -86,7 +88,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
 
         var now = clock.UtcNow;
         var invite = await db.HouseholdInvites
-            .Where(i => i.HouseholdId == householdId && !i.Accepted && i.ExpiresAtUtc > now && !i.IsDeleted)
+            .Where(i => i.HouseholdId == householdId && !i.Accepted && i.ExpiresAtUtc > now)
             .OrderByDescending(i => i.CreatedAtUtc)
             .FirstOrDefaultAsync(ct);
 
@@ -107,7 +109,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
 
         var now = clock.UtcNow;
         var existingInvites = await db.HouseholdInvites
-            .Where(i => i.HouseholdId == householdId && !i.Accepted && !i.IsDeleted)
+            .Where(i => i.HouseholdId == householdId && !i.Accepted)
             .ToListAsync(ct);
 
         foreach (var existingInvite in existingInvites)
@@ -127,7 +129,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
     public async Task<HouseholdDto> JoinAsync(Guid userId, JoinHouseholdDto dto, CancellationToken ct)
     {
         var invite = await db.HouseholdInvites
-            .FirstOrDefaultAsync(i => i.Token == dto.InviteToken && !i.Accepted && !i.IsDeleted, ct)
+            .FirstOrDefaultAsync(i => i.Token == dto.InviteToken && !i.Accepted, ct)
             ?? throw ApiProblemException.NotFound("invite_not_found", "Invite not found or already used.");
 
         var now = clock.UtcNow;
@@ -143,7 +145,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
             return await GetByIdAsync(invite.HouseholdId, ct);
 
         var memberCount = await db.HouseholdMembers
-            .CountAsync(m => m.HouseholdId == invite.HouseholdId && !m.IsDeleted, ct);
+            .CountAsync(m => m.HouseholdId == invite.HouseholdId, ct);
 
         if (memberCount >= 2)
             throw ApiProblemException.Conflict("household_full", "Household already has 2 members.");
@@ -187,7 +189,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
         await EnsureAdminMemberAsync(householdId, actorUserId, ct);
 
         var targetMember = await db.HouseholdMembers
-            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == memberUserId && !m.IsDeleted, ct)
+            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == memberUserId, ct)
             ?? throw ApiProblemException.NotFound("household_member_not_found", "Household member not found.");
 
         if (targetMember.Role == dto.Role)
@@ -198,8 +200,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
             var otherAdminExists = await db.HouseholdMembers.AnyAsync(
                 m => m.HouseholdId == householdId
                     && m.UserId != memberUserId
-                    && m.Role == MemberRole.Admin
-                    && !m.IsDeleted,
+                    && m.Role == MemberRole.Admin,
                 ct);
 
             if (!otherAdminExists)
@@ -224,7 +225,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
             throw ApiProblemException.BadRequest("household_self_remove_not_allowed", "Use the leave action to remove yourself from the household.");
 
         var targetMember = await db.HouseholdMembers
-            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == memberUserId && !m.IsDeleted, ct)
+            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == memberUserId, ct)
             ?? throw ApiProblemException.NotFound("household_member_not_found", "Household member not found.");
 
         targetMember.IsDeleted = true;
@@ -243,21 +244,21 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
         departingMember.UpdatedAtUtc = now;
 
         var remainingMembers = await db.HouseholdMembers
-            .Where(m => m.HouseholdId == householdId && m.UserId != userId && !m.IsDeleted)
+            .Where(m => m.HouseholdId == householdId && m.UserId != userId)
             .OrderBy(m => m.JoinedAtUtc)
             .ToListAsync(ct);
 
         if (remainingMembers.Count == 0)
         {
             var household = await db.Households
-                .FirstOrDefaultAsync(h => h.Id == householdId && !h.IsDeleted, ct)
+                .FirstOrDefaultAsync(h => h.Id == householdId, ct)
                 ?? throw ApiProblemException.NotFound("household_not_found", "Household not found.");
 
             household.IsDeleted = true;
             household.UpdatedAtUtc = now;
 
             var activeInvites = await db.HouseholdInvites
-                .Where(i => i.HouseholdId == householdId && !i.IsDeleted)
+                .Where(i => i.HouseholdId == householdId)
                 .ToListAsync(ct);
 
             foreach (var invite in activeInvites)
@@ -278,7 +279,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
     private async Task<HouseholdMember> EnsureMemberAsync(Guid householdId, Guid userId, CancellationToken ct)
     {
         return await db.HouseholdMembers
-            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == userId && !m.IsDeleted, ct)
+            .FirstOrDefaultAsync(m => m.HouseholdId == householdId && m.UserId == userId, ct)
             ?? throw ApiProblemException.Forbidden("household_access_denied", "You do not have access to this household.");
     }
 
@@ -294,7 +295,7 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
     private async Task EnsureHouseholdCanAcceptInviteAsync(Guid householdId, CancellationToken ct)
     {
         var memberCount = await db.HouseholdMembers
-            .CountAsync(m => m.HouseholdId == householdId && !m.IsDeleted, ct);
+            .CountAsync(m => m.HouseholdId == householdId, ct);
 
         if (memberCount >= 2)
             throw ApiProblemException.Conflict("household_full", "Household already has 2 members.");
@@ -312,6 +313,6 @@ public class HouseholdService(IAppDbContext db, IDateTimeProvider clock)
 
     private static HouseholdDto MapHousehold(Household h) => new(
         h.Id, h.Name, h.TimeZoneId,
-        h.Members.Where(m => !m.IsDeleted).Select(m => new HouseholdMemberDto(
+        h.Members.Select(m => new HouseholdMemberDto(
             m.UserId, m.User.DisplayName, m.User.Username, m.Role, m.JoinedAtUtc)).ToList());
 }

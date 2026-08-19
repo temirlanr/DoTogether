@@ -12,7 +12,7 @@ public class AuthService(IAppDbContext db, ITokenService tokenService, IDateTime
 {
     private const int SaltSize = 16;
     private const int HashSize = 32;
-    private const int Iterations = 100_000;
+    private const int Iterations = 600_000;
     private const int MaxFailedLoginAttempts = 5;
     private static readonly HashAlgorithmName Algorithm = HashAlgorithmName.SHA256;
     private static readonly TimeSpan InitialLockoutDuration = TimeSpan.FromMinutes(15);
@@ -87,9 +87,10 @@ public class AuthService(IAppDbContext db, ITokenService tokenService, IDateTime
         if (string.IsNullOrWhiteSpace(refreshTokenValue))
             throw ApiProblemException.Unauthorized("invalid_refresh_token", "Refresh token missing.");
 
+        var refreshTokenHash = HashRefreshToken(refreshTokenValue);
         var token = await db.RefreshTokens
             .Include(r => r.User)
-            .FirstOrDefaultAsync(r => r.Token == refreshTokenValue, ct);
+            .FirstOrDefaultAsync(r => r.Token == refreshTokenHash, ct);
 
         if (token is null)
             throw ApiProblemException.Unauthorized("invalid_refresh_token", "Invalid refresh token.");
@@ -115,7 +116,7 @@ public class AuthService(IAppDbContext db, ITokenService tokenService, IDateTime
         // Rotate: revoke old, issue new.
         token.IsRevoked = true;
         var response = await GenerateTokensAsync(token.User, ct);
-        token.ReplacedByToken = response.RefreshToken;
+        token.ReplacedByToken = HashRefreshToken(response.RefreshToken!);
         await db.SaveChangesAsync(ct);
 
         return response;
@@ -125,8 +126,9 @@ public class AuthService(IAppDbContext db, ITokenService tokenService, IDateTime
     {
         if (!string.IsNullOrWhiteSpace(refreshTokenValue))
         {
+            var refreshTokenHash = HashRefreshToken(refreshTokenValue);
             var token = await db.RefreshTokens
-                .FirstOrDefaultAsync(r => r.Token == refreshTokenValue && !r.IsRevoked, ct);
+                .FirstOrDefaultAsync(r => r.Token == refreshTokenHash && !r.IsRevoked, ct);
             if (token is not null)
             {
                 token.IsRevoked = true;
@@ -152,10 +154,11 @@ public class AuthService(IAppDbContext db, ITokenService tokenService, IDateTime
         var (accessToken, accessExpires) = tokenService.GenerateAccessToken(user.Id, user.Username);
         var (refreshTokenValue, refreshExpires) = tokenService.GenerateRefreshToken();
 
+        // Only the hash is persisted; the raw value goes to the client once.
         var refreshToken = new RefreshToken
         {
             UserId = user.Id,
-            Token = refreshTokenValue,
+            Token = HashRefreshToken(refreshTokenValue),
             ExpiresAtUtc = refreshExpires
         };
 
@@ -186,6 +189,9 @@ public class AuthService(IAppDbContext db, ITokenService tokenService, IDateTime
 
     private static string NormalizeUsername(string username)
         => username.Trim().ToLowerInvariant();
+
+    private static string HashRefreshToken(string token)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     private static void ValidatePasswordStrength(string password)
     {

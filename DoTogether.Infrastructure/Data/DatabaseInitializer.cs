@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace DoTogether.Infrastructure.Data;
 
-public static class SeedData
+public static class DatabaseInitializer
 {
     public static async Task InitializeAsync(IServiceProvider services)
     {

@@ -11,7 +11,7 @@
 │  Services · DTOs · Interfaces                        │
 ├──────────────────────────────────────────────────────┤
 │  DoTogether.Infrastructure                           │
-│  EF Core DbContext · TokenService · SeedData         │
+│  EF Core DbContext · TokenService · DatabaseInitializer │
 ├──────────────────────────────────────────────────────┤
 │  DoTogether.Domain                                   │
 │  Entities · Value Objects · Enums                    │
@@ -71,20 +71,23 @@ Every mutation endpoint (`complete`, `undo`, `skip`, `reassign`) requires a `cli
 ## 5. Data Integrity
 
 - **Transactions**: EF Core wraps each `SaveChangesAsync` in a transaction. Mutations that create both a `ChoreEvent` and an `IdempotentOperation` are atomic.
-- **Soft delete**: `BaseEntity.IsDeleted` with EF Core global query filters. No data is physically removed.
+- **Soft delete**: `BaseEntity.IsDeleted` with EF Core global query filters for most entities. Exception: `RecipeService.UpdateAsync` replaces a recipe's ingredient and instruction rows by hard delete; refresh tokens and idempotency ledger rows are also plain rows without soft-delete filters.
 - **Key indexes**: composite indexes on `(HouseholdId, DueDate, Status)` for calendar queries, `(ChoreTemplateId, DueDate)` for dedup during generation, unique indexes on `ClientOperationId`.
 
 ## 6. Error Model
 
 All errors are returned as **RFC 9457 Problem Details** via `ExceptionHandlingMiddleware`:
 
-| Exception                     | HTTP Status |
-| ----------------------------- | ----------- |
-| `UnauthorizedAccessException` | 403         |
-| `InvalidOperationException`   | 409         |
-| `ArgumentException`           | 400         |
-| `KeyNotFoundException`        | 404         |
-| Other                         | 500         |
+| Exception                       | HTTP Status |
+| ------------------------------- | ----------- |
+| `ApiProblemException`           | its own status code |
+| `UnauthorizedAccessException`   | 401         |
+| `DbUpdateConcurrencyException`  | 409         |
+| `ArgumentException`             | 400         |
+| `InvalidTimeZoneException`      | 400         |
+| `KeyNotFoundException`          | 404         |
+| `InvalidOperationException`     | 500 (by design — expected business failures must raise `ApiProblemException`) |
+| Other                           | 500         |
 
 ## 7. Local Development
 
@@ -95,4 +98,4 @@ docker compose up -d postgres
 dotnet run --project DoTogether
 ```
 
-Seed data creates two users (Alice & Bob), a household, and three chore templates (daily, weekly, monthly with day-31 clamping) with pre-generated occurrences.
+On startup, `DatabaseInitializer` only applies pending EF Core migrations — no seed data is created. Create users and households through the API.

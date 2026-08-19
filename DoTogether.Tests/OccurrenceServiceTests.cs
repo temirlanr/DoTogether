@@ -139,10 +139,10 @@ public class OccurrenceServiceTests : IDisposable
         await _db.SaveChangesAsync();
 
         await _service.MarkMissedAsync(_householdId, TimeZone);
-        await _db.SaveChangesAsync();
 
-        var updated = await _db.ChoreOccurrences.FirstAsync(o => o.Id == occ.Id);
+        var updated = await _db.ChoreOccurrences.AsNoTracking().FirstAsync(o => o.Id == occ.Id);
         Assert.Equal(OccurrenceStatus.Missed, updated.Status);
+        Assert.Equal(1, updated.Version);
     }
 
     [Fact]
@@ -169,9 +169,8 @@ public class OccurrenceServiceTests : IDisposable
         await _db.SaveChangesAsync();
 
         await _service.MarkMissedAsync(_householdId, TimeZone);
-        await _db.SaveChangesAsync();
 
-        var updated = await _db.ChoreOccurrences.FirstAsync(o => o.Id == occ.Id);
+        var updated = await _db.ChoreOccurrences.AsNoTracking().FirstAsync(o => o.Id == occ.Id);
         Assert.Equal(OccurrenceStatus.Completed, updated.Status);
     }
 

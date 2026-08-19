@@ -8,7 +8,13 @@ All endpoints except Auth require `Authorization: Bearer <access_token>`.
 
 ## Auth
 
-### POST `/api/auth/register`
+Auth routes use the exact casing `/api/Auth/...`. Route matching itself is
+case-insensitive, but the refresh token is delivered as an HttpOnly cookie
+scoped to `Path=/api/Auth`, and browsers match cookie paths case-sensitively —
+clients that call `/api/auth/refresh` will not send the cookie. Always use
+`/api/Auth`.
+
+### POST `/api/Auth/register`
 
 Register a user and receive tokens.
 
@@ -34,7 +40,7 @@ Register a user and receive tokens.
 }
 ```
 
-### POST `/api/auth/login`
+### POST `/api/Auth/login`
 
 Log in with username and password.
 
@@ -46,9 +52,10 @@ Log in with username and password.
 
 **Response 200:** Same shape as register.
 
-### POST `/api/auth/refresh`
+### POST `/api/Auth/refresh`
 
-Rotate the refresh token.
+Rotate the refresh token. The token is read from the HttpOnly refresh cookie
+when present; a JSON body is the fallback.
 
 **Request:**
 
@@ -57,6 +64,14 @@ Rotate the refresh token.
 ```
 
 **Response 200:** Same shape as register.
+
+### POST `/api/Auth/logout`
+
+Requires `Authorization: Bearer <access_token>`. Revokes the current refresh
+token (or, if the cookie is missing, every active refresh token for the user)
+and clears the refresh cookie.
+
+**Response 204.**
 
 ---
 
@@ -103,9 +118,21 @@ Get a single household.
 
 New households receive an invite token automatically when they are created.
 
+### PATCH `/api/households/{householdId}`
+
+Update household details (Admin only).
+
+**Request:**
+
+```json
+{ "name": "Renamed Home" }
+```
+
+**Response 200:** Household object.
+
 ### GET `/api/households/{householdId}/invites/current`
 
-Get the current invite token (Admin only). If an older household does not have an active token yet, one is created automatically.
+Get the current invite token (any member). If an older household does not have an active token yet, one is created automatically.
 
 **Response 200:**
 
@@ -115,7 +142,7 @@ Get the current invite token (Admin only). If an older household does not have a
 
 ### POST `/api/households/{householdId}/invites`
 
-Regenerate the invite token (Admin only). The previous active token is invalidated.
+Regenerate the invite token (any member). The previous active token is invalidated.
 
 **Request:**
 
@@ -145,6 +172,18 @@ Update a household member role (Admin only). The household must always keep at l
 - `1` = Member
 
 **Response 200:** Household object with updated member roles.
+
+### DELETE `/api/households/{householdId}/members/{memberUserId}`
+
+Remove a household member (Admin only). Admins cannot remove themselves — use the leave action instead.
+
+**Response 200:** Household object with updated members.
+
+### POST `/api/households/{householdId}/leave`
+
+Leave the household (any member). If the last member leaves, the household and its invites are soft-deleted; if the departing member was the only admin, the longest-standing remaining member is promoted.
+
+**Response 204.**
 
 ### POST `/api/households/join`
 
@@ -319,6 +358,77 @@ Per-day aggregates. `assigneeId` is optional.
 Full occurrence list with events for a date range.
 
 **Response 200:** Array of ChoreOccurrence objects (same shape as mutation responses).
+
+---
+
+## Achievements
+
+All achievement endpoints take an optional `scope` query parameter:
+`0`/`Me`, `1`/`Partner`, `2`/`Household` (default `Household`). `Partner`
+returns 404 when the household has no second member. Date and week boundaries
+use the household timezone.
+
+### GET `/api/households/{householdId}/achievements/summary?from=2025-06-01&to=2025-06-30&scope=Household`
+
+Aggregated summary for a date range (by occurrence due date).
+
+**Response 200:**
+
+```json
+{
+  "totalCompleted": 12,
+  "totalScheduled": 15,
+  "completionRate": 0.8,
+  "completedByDay": [{ "date": "2025-06-15", "count": 3 }],
+  "topTemplates": [{ "templateId": "...", "title": "Do the dishes", "completedCount": 5 }],
+  "onTimeCompleted": 10,
+  "lateCompleted": 2
+}
+```
+
+### GET `/api/households/{householdId}/achievements/today?scope=Me`
+
+Today's completed chores (by completion event timestamp in the household timezone).
+
+**Response 200:**
+
+```json
+{
+  "completedCountToday": 1,
+  "completions": [
+    {
+      "occurrenceId": "...",
+      "title": "Do the dishes",
+      "completedAtUtc": "...",
+      "scheduledDate": "2025-06-15",
+      "wasLate": false
+    }
+  ]
+}
+```
+
+### GET `/api/households/{householdId}/achievements/streaks?scope=Household`
+
+Completion and on-time streaks (consecutive days with at least one completion).
+
+**Response 200:**
+
+```json
+{ "currentStreakDays": 3, "longestStreakDays": 7, "currentOnTimeStreakDays": 2 }
+```
+
+### GET `/api/households/{householdId}/achievements/badges?scope=Household`
+
+Deterministic badges/milestones based on completion totals, streaks, and perfect weeks.
+
+**Response 200:**
+
+```json
+{
+  "earnedBadges": [{ "key": "completions_10", "title": "10 Completions", "description": "Reached 10 completions!" }],
+  "progressBadges": [{ "key": "completions_25", "title": "25 Completions", "description": "Complete 25 chores", "current": 12, "target": 25 }]
+}
+```
 
 ---
 

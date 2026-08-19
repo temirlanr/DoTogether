@@ -271,7 +271,7 @@ public class RecipeImportServiceTests : IDisposable
       {
         Content = new StringContent("blocked")
       };
-    });
+    }, enableReaderFallback: true);
 
     var preview = await service.PreviewAsync(
       _householdId,
@@ -320,7 +320,7 @@ public class RecipeImportServiceTests : IDisposable
       {
         Content = new StringContent("blocked")
       };
-    });
+    }, enableReaderFallback: true);
 
     var preview = await service.PreviewAsync(
       _householdId,
@@ -394,7 +394,7 @@ public class RecipeImportServiceTests : IDisposable
               </html>
               """, Encoding.UTF8, "text/html")
       };
-    });
+    }, enableReaderFallback: true);
 
     var preview = await service.PreviewAsync(
       _householdId,
@@ -570,8 +570,8 @@ public class RecipeImportServiceTests : IDisposable
     GC.SuppressFinalize(this);
   }
 
-  private RecipeImportService CreateService(Func<HttpRequestMessage, HttpResponseMessage> responder)
-    => CreateService((request, _) => responder(request));
+  private RecipeImportService CreateService(Func<HttpRequestMessage, HttpResponseMessage> responder, bool enableReaderFallback = false)
+    => CreateService((request, _) => responder(request), new NullRecipeLlmExtractor(), enableReaderFallback);
 
   private RecipeImportService CreateService(Func<HttpRequestMessage, HttpResponseMessage> responder, IRecipeLlmExtractor extractor)
     => CreateService((request, _) => responder(request), extractor);
@@ -579,11 +579,12 @@ public class RecipeImportServiceTests : IDisposable
   private RecipeImportService CreateService(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> responder)
       => CreateService(responder, new NullRecipeLlmExtractor());
 
-  private RecipeImportService CreateService(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> responder, IRecipeLlmExtractor extractor)
+  private RecipeImportService CreateService(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> responder, IRecipeLlmExtractor extractor, bool enableReaderFallback = false)
   {
     var handler = new StubHttpMessageHandler(responder);
     var client = new HttpClient(handler);
-    return new RecipeImportService(client, _householdAccess, extractor);
+    return new RecipeImportService(client, _householdAccess, extractor,
+        new RecipeImportOptions { EnableReaderFallback = enableReaderFallback });
   }
 
   private sealed class StubHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> responder) : HttpMessageHandler

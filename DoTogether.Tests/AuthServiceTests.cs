@@ -97,8 +97,6 @@ public class AuthServiceTests : IDisposable
 
         public (string Token, DateTime ExpiresAtUtc) GenerateRefreshToken()
             => ($"refresh-{Guid.NewGuid():N}", DateTime.UtcNow.AddDays(30));
-
-        public Guid? ValidateAccessToken(string token) => null;
     }
 
     private sealed class MutableDateTimeProvider(DateTime utcNow) : IDateTimeProvider

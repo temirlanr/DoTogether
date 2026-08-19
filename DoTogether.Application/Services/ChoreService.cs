@@ -15,7 +15,7 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
     public async Task<ChoreTemplateDto> CreateTemplateAsync(
         Guid householdId, Guid userId, CreateChoreTemplateDto dto, CancellationToken ct)
     {
-        var household = await db.Households.FirstAsync(h => h.Id == householdId && !h.IsDeleted, ct);
+        var household = await db.Households.FirstAsync(h => h.Id == householdId, ct);
 
         var template = new ChoreTemplate
         {
@@ -30,7 +30,7 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
         };
 
         db.ChoreTemplates.Add(template);
-        await occurrenceService.GenerateAsync(template, household.TimeZoneId, ct);
+        await occurrenceService.GenerateAsync(template, household.TimeZoneId, ct: ct);
         await db.SaveChangesAsync(ct);
 
         return MapTemplate(template);
@@ -41,7 +41,7 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
     {
         var template = await db.ChoreTemplates
             .Include(t => t.Assignee)
-            .FirstAsync(t => t.Id == templateId && t.HouseholdId == householdId && !t.IsDeleted, ct);
+            .FirstAsync(t => t.Id == templateId && t.HouseholdId == householdId, ct);
 
         var assigneeChanged = false;
 
@@ -66,7 +66,7 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
         if (assigneeChanged)
         {
             var householdTimeZoneId = await db.Households
-                .Where(h => h.Id == householdId && !h.IsDeleted)
+                .Where(h => h.Id == householdId)
                 .Select(h => h.TimeZoneId)
                 .FirstAsync(ct);
             var today = clock.TodayIn(householdTimeZoneId);
@@ -75,8 +75,7 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
                 .Where(o => o.ChoreTemplateId == templateId
                             && o.HouseholdId == householdId
                             && o.Status == OccurrenceStatus.Pending
-                            && o.DueDate >= today
-                            && !o.IsDeleted)
+                            && o.DueDate >= today)
                 .ToListAsync(ct);
 
             foreach (var occurrence in pendingFutureOccurrences)
@@ -94,13 +93,12 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
     public async Task SoftDeleteTemplateAsync(Guid templateId, Guid householdId, CancellationToken ct)
     {
         var template = await db.ChoreTemplates
-            .FirstAsync(t => t.Id == templateId && t.HouseholdId == householdId && !t.IsDeleted, ct);
+            .FirstAsync(t => t.Id == templateId && t.HouseholdId == householdId, ct);
 
         var occurrencesToDelete = await db.ChoreOccurrences
             .Where(o => o.ChoreTemplateId == templateId
                         && o.HouseholdId == householdId
-                        && o.Status != OccurrenceStatus.Completed
-                        && !o.IsDeleted)
+                        && o.Status != OccurrenceStatus.Completed)
             .ToListAsync(ct);
 
         foreach (var occurrence in occurrencesToDelete)
@@ -119,8 +117,9 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
     public async Task<List<ChoreTemplateDto>> ListTemplatesAsync(Guid householdId, CancellationToken ct)
     {
         var templates = await db.ChoreTemplates
+            .AsNoTracking()
             .Include(t => t.Assignee)
-            .Where(t => t.HouseholdId == householdId && !t.IsDeleted)
+            .Where(t => t.HouseholdId == householdId)
             .OrderBy(t => t.Title)
             .ToListAsync(ct);
 
@@ -130,8 +129,9 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
     public async Task<ChoreTemplateDto> GetTemplateAsync(Guid templateId, Guid householdId, CancellationToken ct)
     {
         var template = await db.ChoreTemplates
+            .AsNoTracking()
             .Include(t => t.Assignee)
-            .FirstAsync(t => t.Id == templateId && t.HouseholdId == householdId && !t.IsDeleted, ct);
+            .FirstAsync(t => t.Id == templateId && t.HouseholdId == householdId, ct);
 
         return MapTemplate(template);
     }
@@ -155,13 +155,19 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             return JsonSerializer.Deserialize<ChoreOccurrenceDto>(existing.ResponseJson)!;
 
         var occurrence = await db.ChoreOccurrences
+            .AsSplitQuery()
             .Include(o => o.Assignee)
             .Include(o => o.Events).ThenInclude(e => e.PerformedByUser)
-            .FirstAsync(o => o.Id == occurrenceId && o.HouseholdId == householdId && !o.IsDeleted, ct);
+            .FirstAsync(o => o.Id == occurrenceId && o.HouseholdId == householdId, ct);
         var templateInfo = await db.ChoreTemplates
             .IgnoreQueryFilters()
             .Where(t => t.Id == occurrence.ChoreTemplateId)
-            .Select(t => new { t.Title, t.IsDeleted })
+            .Select(t => new
+            {
+                t.Title,
+                t.IsDeleted,
+                PerformedByName = db.Users.Where(u => u.Id == userId).Select(u => u.DisplayName).First()
+            })
             .FirstAsync(ct);
 
         // Apply state transition.
@@ -178,21 +184,18 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
         occurrence.Version++;
         occurrence.UpdatedAtUtc = clock.UtcNow;
 
-        var user = await db.Users.FirstAsync(u => u.Id == userId, ct);
-
         var choreEvent = new ChoreEvent
         {
             ChoreOccurrenceId = occurrence.Id,
             EventType = eventType,
             PerformedByUserId = userId,
-            PerformedByUser = user,
             OccurredAtUtc = clock.UtcNow,
             ClientOperationId = clientOperationId,
             Metadata = metadata
         };
         db.ChoreEvents.Add(choreEvent);
 
-        var dto = MapOccurrence(occurrence, templateInfo.Title);
+        var dto = MapOccurrence(occurrence, templateInfo.Title, templateInfo.PerformedByName);
 
         db.IdempotentOperations.Add(new IdempotentOperation
         {
@@ -202,8 +205,32 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             ResponseJson = JsonSerializer.Serialize(dto)
         });
 
-        await db.SaveChangesAsync(ct);
-        return dto;
+        return await SaveOrReplayAsync(dto, clientOperationId, ct);
+    }
+
+    /// <summary>
+    /// Persists a mutation, treating a lost check-then-insert race on the
+    /// idempotency ledger as a replay of the winner's stored response.
+    /// </summary>
+    private async Task<ChoreOccurrenceDto> SaveOrReplayAsync(
+        ChoreOccurrenceDto dto, Guid clientOperationId, CancellationToken ct)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return dto;
+        }
+        catch (DbUpdateException)
+        {
+            var replay = await db.IdempotentOperations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(o => o.ClientOperationId == clientOperationId, ct);
+
+            if (replay is null)
+                throw;
+
+            return JsonSerializer.Deserialize<ChoreOccurrenceDto>(replay.ResponseJson)!;
+        }
     }
 
     public async Task<ChoreOccurrenceDto> ReassignOccurrenceAsync(
@@ -217,9 +244,10 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             return JsonSerializer.Deserialize<ChoreOccurrenceDto>(existing.ResponseJson)!;
 
         var occurrence = await db.ChoreOccurrences
+            .AsSplitQuery()
             .Include(o => o.Assignee)
             .Include(o => o.Events).ThenInclude(e => e.PerformedByUser)
-            .FirstAsync(o => o.Id == occurrenceId && o.HouseholdId == householdId && !o.IsDeleted, ct);
+            .FirstAsync(o => o.Id == occurrenceId && o.HouseholdId == householdId, ct);
         var templateTitle = await db.ChoreTemplates
             .IgnoreQueryFilters()
             .Where(t => t.Id == occurrence.ChoreTemplateId)
@@ -257,21 +285,32 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
             ResponseJson = JsonSerializer.Serialize(dto)
         });
 
-        await db.SaveChangesAsync(ct);
-        return dto;
+        return await SaveOrReplayAsync(dto, clientOperationId, ct);
     }
 
     // ── Rolling generation for all active templates in a household ──
 
     public async Task GenerateOccurrencesForHouseholdAsync(Guid householdId, CancellationToken ct)
     {
-        var household = await db.Households.FirstAsync(h => h.Id == householdId && !h.IsDeleted, ct);
+        var household = await db.Households.FirstAsync(h => h.Id == householdId, ct);
         var templates = await db.ChoreTemplates
-            .Where(t => t.HouseholdId == householdId && t.IsActive && !t.IsDeleted)
+            .Where(t => t.HouseholdId == householdId && t.IsActive)
             .ToListAsync(ct);
 
+        var templateIds = templates.Select(t => t.Id).ToList();
+        var existingDatesByTemplate = (await db.ChoreOccurrences
+                .Where(o => templateIds.Contains(o.ChoreTemplateId))
+                .Select(o => new { o.ChoreTemplateId, o.DueDate })
+                .ToListAsync(ct))
+            .GroupBy(o => o.ChoreTemplateId)
+            .ToDictionary(g => g.Key, g => (IReadOnlySet<DateOnly>)g.Select(o => o.DueDate).ToHashSet());
+
         foreach (var template in templates)
-            await occurrenceService.GenerateAsync(template, household.TimeZoneId, ct);
+        {
+            var existingDates = existingDatesByTemplate.GetValueOrDefault(template.Id)
+                                ?? new HashSet<DateOnly>();
+            await occurrenceService.GenerateAsync(template, household.TimeZoneId, existingDates, ct);
+        }
 
         await db.SaveChangesAsync(ct);
     }
@@ -312,11 +351,12 @@ public class ChoreService(IAppDbContext db, IDateTimeProvider clock, OccurrenceS
         };
     }
 
-    private static ChoreOccurrenceDto MapOccurrence(ChoreOccurrence o, string choreTitle) => new(
+    private static ChoreOccurrenceDto MapOccurrence(
+        ChoreOccurrence o, string choreTitle, string? performerNameFallback = null) => new(
         o.Id, o.ChoreTemplateId, choreTitle,
         o.AssigneeId, o.Assignee?.DisplayName, o.DueDate, o.Status, o.Version,
         o.Events.OrderBy(e => e.OccurredAtUtc).Select(e => new ChoreEventDto(
             e.Id, e.EventType, e.PerformedByUserId,
-            e.PerformedByUser.DisplayName, e.OccurredAtUtc,
+            e.PerformedByUser?.DisplayName ?? performerNameFallback ?? string.Empty, e.OccurredAtUtc,
             e.ClientOperationId, e.Metadata)).ToList());
 }

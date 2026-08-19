@@ -12,12 +12,10 @@ public class CalendarService(IAppDbContext db, OccurrenceService occurrenceServi
         Guid? assigneeId, CancellationToken ct)
     {
         await occurrenceService.MarkMissedAsync(householdId, timeZoneId, ct);
-        await db.SaveChangesAsync(ct);
 
         var query = db.ChoreOccurrences
             .Where(o => o.HouseholdId == householdId
-                        && o.DueDate >= from && o.DueDate <= to
-                        && !o.IsDeleted);
+                        && o.DueDate >= from && o.DueDate <= to);
 
         if (assigneeId.HasValue)
             query = query.Where(o => o.AssigneeId == assigneeId.Value);
@@ -45,14 +43,14 @@ public class CalendarService(IAppDbContext db, OccurrenceService occurrenceServi
         Guid? assigneeId, CancellationToken ct)
     {
         await occurrenceService.MarkMissedAsync(householdId, timeZoneId, ct);
-        await db.SaveChangesAsync(ct);
 
         var query = db.ChoreOccurrences
+            .AsNoTracking()
+            .AsSplitQuery()
             .Include(o => o.Assignee)
             .Include(o => o.Events).ThenInclude(e => e.PerformedByUser)
             .Where(o => o.HouseholdId == householdId
-                        && o.DueDate >= from && o.DueDate <= to
-                        && !o.IsDeleted);
+                        && o.DueDate >= from && o.DueDate <= to);
 
         if (assigneeId.HasValue)
             query = query.Where(o => o.AssigneeId == assigneeId.Value);

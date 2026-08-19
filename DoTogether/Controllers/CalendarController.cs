@@ -1,4 +1,4 @@
-﻿using DoTogether.Application.DTOs;
+using DoTogether.Application.DTOs;
 using DoTogether.Application.Interfaces;
 using DoTogether.Application.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -12,8 +12,7 @@ namespace DoTogether.Controllers;
 public class CalendarController(
     CalendarService calendarService,
     HouseholdAccessService householdAccess,
-    ICurrentUserService currentUser,
-    IAppDbContext db) : ControllerBase
+    ICurrentUserService currentUser) : ControllerBase
 {
     /// <summary>
     /// Get per-day aggregates (due/done/missed/skipped) for a date range.
@@ -23,13 +22,10 @@ public class CalendarController(
     public async Task<IActionResult> GetAggregates(
         Guid householdId, [FromQuery] CalendarQueryDto query, CancellationToken ct)
     {
-        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
-
-        var household = await db.Households.FindAsync([householdId], ct)
-            ?? throw new KeyNotFoundException("Household not found.");
+        var access = await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
 
         var result = await calendarService.GetAggregatesAsync(
-            householdId, household.TimeZoneId, query.From, query.To, query.AssigneeId, ct);
+            householdId, access.TimeZoneId, query.From, query.To, query.AssigneeId, ct);
         return Ok(result);
     }
 
@@ -41,13 +37,10 @@ public class CalendarController(
     public async Task<IActionResult> GetOccurrences(
         Guid householdId, [FromQuery] CalendarQueryDto query, CancellationToken ct)
     {
-        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
-
-        var household = await db.Households.FindAsync([householdId], ct)
-            ?? throw new KeyNotFoundException("Household not found.");
+        var access = await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
 
         var result = await calendarService.GetOccurrencesAsync(
-            householdId, household.TimeZoneId, query.From, query.To, query.AssigneeId, ct);
+            householdId, access.TimeZoneId, query.From, query.To, query.AssigneeId, ct);
         return Ok(result);
     }
 }

@@ -23,8 +23,9 @@ public class MealPlanService(
         ValidateRange(from, to);
 
         var entries = await db.MealPlanEntries
+            .AsNoTracking()
             .Include(m => m.Recipe)
-            .Where(m => m.HouseholdId == householdId && m.Date >= from && m.Date <= to && !m.IsDeleted)
+            .Where(m => m.HouseholdId == householdId && m.Date >= from && m.Date <= to)
             .OrderBy(m => m.Date)
             .ThenBy(m => m.MealSlot)
             .ToListAsync(ct);
@@ -75,7 +76,7 @@ public class MealPlanService(
 
         var entry = await db.MealPlanEntries
             .Include(m => m.Recipe)
-            .FirstOrDefaultAsync(m => m.Id == entryId && m.HouseholdId == householdId && !m.IsDeleted, ct)
+            .FirstOrDefaultAsync(m => m.Id == entryId && m.HouseholdId == householdId, ct)
             ?? throw ApiProblemException.NotFound("meal_plan_not_found", "Meal plan entry not found.");
 
         var recipe = await LoadRecipeForPlanningAsync(householdId, dto.RecipeId, ct);
@@ -99,7 +100,7 @@ public class MealPlanService(
         await householdAccess.EnsureMemberAsync(householdId, userId, ct);
 
         var entry = await db.MealPlanEntries
-            .FirstOrDefaultAsync(m => m.Id == entryId && m.HouseholdId == householdId && !m.IsDeleted, ct)
+            .FirstOrDefaultAsync(m => m.Id == entryId && m.HouseholdId == householdId, ct)
             ?? throw ApiProblemException.NotFound("meal_plan_not_found", "Meal plan entry not found.");
 
         entry.IsDeleted = true;
@@ -119,9 +120,10 @@ public class MealPlanService(
         ValidateRange(from, to);
 
         var entries = await db.MealPlanEntries
+            .AsNoTracking()
             .Include(m => m.Recipe)
                 .ThenInclude(r => r.Ingredients)
-            .Where(m => m.HouseholdId == householdId && m.Date >= from && m.Date <= to && !m.IsDeleted)
+            .Where(m => m.HouseholdId == householdId && m.Date >= from && m.Date <= to)
             .OrderBy(m => m.Date)
             .ThenBy(m => m.MealSlot)
             .ToListAsync(ct);
@@ -210,7 +212,7 @@ public class MealPlanService(
     {
         var recipe = await db.HouseholdRecipes
             .Include(r => r.Ingredients)
-            .FirstOrDefaultAsync(r => r.Id == recipeId && r.HouseholdId == householdId && !r.IsDeleted, ct)
+            .FirstOrDefaultAsync(r => r.Id == recipeId && r.HouseholdId == householdId, ct)
             ?? throw ApiProblemException.NotFound("recipe_not_found", "Recipe not found.");
 
         if (recipe.IsArchived)
@@ -234,8 +236,7 @@ public class MealPlanService(
             m => m.HouseholdId == householdId
                  && m.Date == date
                  && m.MealSlot == mealSlot
-                 && m.Id != currentEntryId
-                 && !m.IsDeleted,
+                 && m.Id != currentEntryId,
             ct);
 
         if (hasConflict)

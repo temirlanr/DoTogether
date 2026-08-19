@@ -47,7 +47,6 @@ public class HouseholdsController(
     [ProducesResponseType(typeof(HouseholdDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> Update(Guid householdId, [FromBody] UpdateHouseholdDto dto, CancellationToken ct)
     {
-        await householdAccess.EnsureAdminAsync(householdId, currentUser.UserId, ct);
         var result = await householdService.UpdateAsync(householdId, currentUser.UserId, dto, ct);
         return Ok(result);
     }
@@ -57,7 +56,6 @@ public class HouseholdsController(
     [ProducesResponseType(typeof(InviteResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetInviteToken(Guid householdId, CancellationToken ct)
     {
-        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await householdService.GetInviteTokenAsync(householdId, currentUser.UserId, ct);
         return Ok(result);
     }
@@ -67,7 +65,6 @@ public class HouseholdsController(
     [ProducesResponseType(typeof(InviteResponseDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> Invite(Guid householdId, CancellationToken ct)
     {
-        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         var result = await householdService.RegenerateInviteTokenAsync(householdId, currentUser.UserId, ct);
         return StatusCode(StatusCodes.Status201Created, result);
     }
@@ -81,7 +78,6 @@ public class HouseholdsController(
         [FromBody] UpdateHouseholdMemberRoleDto dto,
         CancellationToken ct)
     {
-        await householdAccess.EnsureAdminAsync(householdId, currentUser.UserId, ct);
         var result = await householdService.UpdateMemberRoleAsync(householdId, currentUser.UserId, memberUserId, dto, ct);
         return Ok(result);
     }
@@ -91,7 +87,6 @@ public class HouseholdsController(
     [ProducesResponseType(typeof(HouseholdDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> RemoveMember(Guid householdId, Guid memberUserId, CancellationToken ct)
     {
-        await householdAccess.EnsureAdminAsync(householdId, currentUser.UserId, ct);
         var result = await householdService.RemoveMemberAsync(householdId, currentUser.UserId, memberUserId, ct);
         return Ok(result);
     }
@@ -101,7 +96,6 @@ public class HouseholdsController(
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Leave(Guid householdId, CancellationToken ct)
     {
-        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
         await householdService.LeaveAsync(householdId, currentUser.UserId, ct);
         return NoContent();
     }

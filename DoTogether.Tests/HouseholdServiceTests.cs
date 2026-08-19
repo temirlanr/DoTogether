@@ -166,7 +166,7 @@ public class HouseholdServiceTests : IDisposable
         Assert.False(invite.Accepted);
         Assert.False(invite.IsDeleted);
         Assert.NotEmpty(invite.Token);
-        Assert.Equal(_now.AddDays(3650), invite.ExpiresAtUtc);
+        Assert.Equal(_now.AddDays(7), invite.ExpiresAtUtc);
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public class HouseholdServiceTests : IDisposable
 
         Assert.NotEqual(Guid.Empty, invite.InviteId);
         Assert.NotEmpty(invite.Token);
-        Assert.Equal(_now.AddDays(3650), invite.ExpiresAtUtc);
+        Assert.Equal(_now.AddDays(7), invite.ExpiresAtUtc);
     }
 
     [Fact]

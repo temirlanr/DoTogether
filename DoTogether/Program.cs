@@ -23,7 +23,7 @@ if (!string.IsNullOrEmpty(port))
 
 // ── EF Core + PostgreSQL ──
 var connectionString =
-    ParseDatabaseUrl(builder.Configuration.GetValue<string>("DATABASE_URL"))
+    DatabaseUrl.ToNpgsqlConnectionString(builder.Configuration.GetValue<string>("DATABASE_URL"))
     ?? BuildFromPgVars()
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("No database connection string configured.");
@@ -69,6 +69,11 @@ builder.Services.AddAuthorization();
 // Production must explicitly list trusted origins via the Cors:AllowedOrigins
 // config array. AllowCredentials is required for the HttpOnly refresh cookie.
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+if (!builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
+    throw new InvalidOperationException(
+        "Cors:AllowedOrigins is required in non-development environments; " +
+        "an empty list would silently block every browser client. " +
+        "Set CORS__ALLOWEDORIGINS__0 (etc.) to the frontend origin(s).");
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -117,9 +122,12 @@ builder.Services.AddRateLimiter(options =>
             }));
 
     // Recipe import: expensive outbound HTTP — limit per user.
+    // Default JWT inbound claim mapping renames "sub", so fall back to
+    // ClaimTypes.NameIdentifier the same way CurrentUserService does.
     options.AddPolicy("recipe-import", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: httpContext.User.FindFirst("sub")?.Value
+                          ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
                           ?? httpContext.Connection.RemoteIpAddress?.ToString()
                           ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
@@ -129,8 +137,6 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             }));
 });
-
-builder.Services.AddAntiforgery();
 
 // ── Application services ──
 builder.Services.AddScoped<ITokenService, TokenService>();
@@ -157,6 +163,9 @@ else
         client.Timeout = TimeSpan.FromSeconds(20);
     });
 }
+
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection("RecipeImport").Get<RecipeImportOptions>() ?? new RecipeImportOptions());
 
 // Recipe import: hardened HttpClient — no auto-redirect (we follow manually with
 // per-hop SSRF validation), tight connect timeout, and a 4 MB body cap.
@@ -206,11 +215,10 @@ if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
 var app = builder.Build();
 
 // ── Migrate ──
-await SeedData.InitializeAsync(app.Services);
+await DatabaseInitializer.InitializeAsync(app.Services);
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
     app.UseSwagger();
     app.UseSwaggerUI();
 }
@@ -240,27 +248,6 @@ app.MapControllers();
 app.Run();
 
 // ── Helpers ──
-
-/// <summary>
-/// Converts a PostgreSQL URL (postgresql://user:pass@host:port/db) to an
-/// Npgsql connection string. Railway always provides DATABASE_URL in this format.
-/// SSL is required for Railway's managed Postgres.
-/// </summary>
-static string? ParseDatabaseUrl(string? url)
-{
-    if (string.IsNullOrWhiteSpace(url)) return null;
-
-    var uri = new Uri(url);
-    var userInfo = uri.UserInfo.Split(':', 2);
-    var host = uri.Host;
-    var dbPort = uri.Port > 0 ? uri.Port : 5432;
-    var database = uri.AbsolutePath.TrimStart('/');
-    var username = Uri.UnescapeDataString(userInfo[0]);
-    var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
-
-    return $"Host={host};Port={dbPort};Database={database};Username={username};Password={password};" +
-           "SSL Mode=Require;Trust Server Certificate=true";
-}
 
 static string? BuildFromPgVars()
 {

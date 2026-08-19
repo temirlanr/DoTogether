@@ -45,34 +45,4 @@ public class TokenService(IConfiguration configuration) : ITokenService
             int.TryParse(configuration["Jwt:RefreshTokenDays"], out var days) ? days : 30);
         return (token, expires);
     }
-
-    public Guid? ValidateAccessToken(string token)
-    {
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(configuration["Jwt:Key"]!));
-
-        var handler = new JwtSecurityTokenHandler();
-        try
-        {
-            var principal = handler.ValidateToken(token, new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidIssuer = configuration["Jwt:Issuer"],
-                ValidateAudience = true,
-                ValidAudience = configuration["Jwt:Audience"],
-                ValidateLifetime = true,
-                IssuerSigningKey = key,
-                ValidateIssuerSigningKey = true
-            }, out _);
-
-            var sub = principal.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? principal.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            return sub is not null ? Guid.Parse(sub) : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
 }

@@ -36,6 +36,13 @@ public class DevicesController(
             });
             await db.SaveChangesAsync(ct);
         }
+        else if (existing.IsDeleted)
+        {
+            // Unregister soft-deletes the row; re-registering must resurrect it.
+            existing.IsDeleted = false;
+            existing.UpdatedAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
 
         return NoContent();
     }

@@ -39,7 +39,7 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
         Guid householdId, Guid? filterUserId, CancellationToken ct)
     {
         var baseQuery = db.ChoreOccurrences
-            .Where(o => o.HouseholdId == householdId && !o.IsDeleted);
+            .Where(o => o.HouseholdId == householdId);
 
         if (filterUserId.HasValue)
             baseQuery = baseQuery.Where(o => o.AssigneeId == filterUserId.Value);
@@ -60,8 +60,7 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
         {
             var events = await db.ChoreEvents
                 .Where(e => completedIds.Contains(e.ChoreOccurrenceId)
-                            && e.EventType == ChoreEventType.Completed
-                            && !e.IsDeleted)
+                            && e.EventType == ChoreEventType.Completed)
                 .Select(e => new { e.ChoreOccurrenceId, e.OccurredAtUtc })
                 .ToListAsync(ct);
 
@@ -116,8 +115,7 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
 
         var query = db.ChoreOccurrences
             .Where(o => o.HouseholdId == householdId
-                        && o.DueDate >= from && o.DueDate <= to
-                        && !o.IsDeleted);
+                        && o.DueDate >= from && o.DueDate <= to);
 
         if (filterUserId.HasValue)
             query = query.Where(o => o.AssigneeId == filterUserId.Value);
@@ -180,10 +178,8 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
             .Where(e => e.EventType == ChoreEventType.Completed
                         && e.OccurredAtUtc >= todayStartUtc
                         && e.OccurredAtUtc < todayEndUtc
-                        && !e.IsDeleted
                         && e.ChoreOccurrence.HouseholdId == householdId
-                        && e.ChoreOccurrence.Status == OccurrenceStatus.Completed
-                        && !e.ChoreOccurrence.IsDeleted);
+                        && e.ChoreOccurrence.Status == OccurrenceStatus.Completed);
 
         if (filterUserId.HasValue)
             eventsQuery = eventsQuery.Where(e => e.ChoreOccurrence.AssigneeId == filterUserId.Value);
@@ -290,8 +286,7 @@ public class AchievementService(IAppDbContext db, IDateTimeProvider clock)
         var ids = lookup.Keys.ToHashSet();
         var completionEvents = await db.ChoreEvents
             .Where(e => ids.Contains(e.ChoreOccurrenceId)
-                        && e.EventType == ChoreEventType.Completed
-                        && !e.IsDeleted)
+                        && e.EventType == ChoreEventType.Completed)
             .Select(e => new { e.ChoreOccurrenceId, e.OccurredAtUtc })
             .ToListAsync(ct);
 

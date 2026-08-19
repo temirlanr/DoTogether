@@ -4,7 +4,6 @@ using DoTogether.Application.Services;
 using DoTogether.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace DoTogether.Controllers;
 
@@ -19,7 +18,6 @@ namespace DoTogether.Controllers;
 public class AchievementsController(
     AchievementService achievementService,
     HouseholdAccessService householdAccess,
-    IAppDbContext db,
     ICurrentUserService currentUser) : ControllerBase
 {
     /// <summary>
@@ -78,32 +76,16 @@ public class AchievementsController(
     private async Task<(string TimeZoneId, Guid? FilterUserId)> ResolveContextAsync(
         Guid householdId, AchievementScope scope, CancellationToken ct)
     {
-        await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
-
-        var household = await db.Households.FindAsync([householdId], ct)
-            ?? throw new KeyNotFoundException("Household not found.");
+        var access = await householdAccess.EnsureMemberAsync(householdId, currentUser.UserId, ct);
 
         Guid? filterUserId = scope switch
         {
             AchievementScope.Me => currentUser.UserId,
-            AchievementScope.Partner => await GetPartnerIdAsync(householdId, ct),
+            AchievementScope.Partner => await householdAccess.GetPartnerUserIdAsync(householdId, currentUser.UserId, ct)
+                ?? throw new KeyNotFoundException("No partner found in this household."),
             _ => null
         };
 
-        return (household.TimeZoneId, filterUserId);
-    }
-
-    private async Task<Guid> GetPartnerIdAsync(Guid householdId, CancellationToken ct)
-    {
-        var partnerId = await db.HouseholdMembers
-            .Where(m => m.HouseholdId == householdId
-                        && m.UserId != currentUser.UserId
-                        && !m.IsDeleted)
-            .Select(m => m.UserId)
-            .FirstOrDefaultAsync(ct);
-
-        return partnerId != Guid.Empty
-            ? partnerId
-            : throw new KeyNotFoundException("No partner found in this household.");
+        return (access.TimeZoneId, filterUserId);
     }
 }

@@ -16,7 +16,9 @@ public class OccurrenceService(IAppDbContext db, IDateTimeProvider clock)
     /// <summary>
     /// Ensure occurrences exist from today through today + horizon for the given template.
     /// </summary>
-    public async Task GenerateAsync(ChoreTemplate template, string householdTimeZone, CancellationToken ct = default)
+    public async Task GenerateAsync(
+        ChoreTemplate template, string householdTimeZone,
+        IReadOnlySet<DateOnly>? knownExistingDates = null, CancellationToken ct = default)
     {
         var today = clock.TodayIn(householdTimeZone);
         var rangeStart = template.GeneratedThroughDate?.AddDays(1) ?? template.StartDate;
@@ -38,13 +40,13 @@ public class OccurrenceService(IAppDbContext db, IDateTimeProvider clock)
         }
 
         // Fetch existing dates to avoid duplicates.
-        var existingDates = await db.ChoreOccurrences
-            .Where(o => o.ChoreTemplateId == template.Id
-                        && o.DueDate >= rangeStart
-                        && o.DueDate <= rangeEnd
-                        && !o.IsDeleted)
-            .Select(o => o.DueDate)
-            .ToHashSetAsync(ct);
+        var existingDates = knownExistingDates
+            ?? await db.ChoreOccurrences
+                .Where(o => o.ChoreTemplateId == template.Id
+                            && o.DueDate >= rangeStart
+                            && o.DueDate <= rangeEnd)
+                .Select(o => o.DueDate)
+                .ToHashSetAsync(ct);
 
         foreach (var date in dates)
         {
@@ -72,17 +74,12 @@ public class OccurrenceService(IAppDbContext db, IDateTimeProvider clock)
     {
         var today = clock.TodayIn(householdTimeZone);
 
-        var overdue = await db.ChoreOccurrences
+        await db.ChoreOccurrences
             .Where(o => o.HouseholdId == householdId
                         && o.Status == OccurrenceStatus.Pending
-                        && o.DueDate < today
-                        && !o.IsDeleted)
-            .ToListAsync(ct);
-
-        foreach (var occ in overdue)
-        {
-            occ.Status = OccurrenceStatus.Missed;
-            occ.Version++;
-        }
+                        && o.DueDate < today)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.Status, OccurrenceStatus.Missed)
+                .SetProperty(o => o.Version, o => o.Version + 1), ct);
     }
 }

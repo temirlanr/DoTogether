@@ -27,10 +27,12 @@ public sealed class GeminiRecipeLlmExtractor(
             return null;
 
         var model = configuration["Gemini:Model"] ?? "gemini-1.5-flash";
-        var uri = new Uri($"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(model)}:generateContent?key={Uri.EscapeDataString(apiKey)}");
+        var uri = new Uri($"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(model)}:generateContent");
         var prompt = BuildPrompt(sourceUri, pageText);
 
-        using var response = await httpClient.PostAsJsonAsync(uri, new
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri);
+        request.Headers.TryAddWithoutValidation("x-goog-api-key", apiKey);
+        request.Content = JsonContent.Create(new
         {
             generationConfig = new
             {
@@ -45,7 +47,9 @@ public sealed class GeminiRecipeLlmExtractor(
                     parts = new[] { new { text = prompt } }
                 }
             }
-        }, JsonOptions, ct);
+        }, options: JsonOptions);
+
+        using var response = await httpClient.SendAsync(request, ct);
 
         if (!response.IsSuccessStatusCode)
         {

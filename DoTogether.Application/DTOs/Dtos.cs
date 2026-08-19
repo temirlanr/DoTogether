@@ -34,7 +34,6 @@ public record CreateHouseholdDto([Required, MaxLength(120)] string Name, [Requir
 public record UpdateHouseholdDto([Required, MaxLength(120)] string Name);
 public record HouseholdDto(Guid Id, string Name, string TimeZoneId, List<HouseholdMemberDto> Members);
 public record HouseholdMemberDto(Guid UserId, string DisplayName, string Username, MemberRole Role, DateTime JoinedAtUtc);
-public record InviteMemberDto();
 public record InviteResponseDto(Guid InviteId, string Token, DateTime ExpiresAtUtc);
 public record JoinHouseholdDto([Required] string InviteToken);
 public record UpdateHouseholdMemberRoleDto([Required] MemberRole Role);
